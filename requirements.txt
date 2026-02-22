@@ -1,0 +1,15 @@
+streamlit
+streamlit-autorefresh
+google-generativeai
+google-cloud-texttospeech
+google-auth
+langchain-core
+langchain-google-genai
+langchain-community
+faiss-cpu
+pytchat
+httpx
+pandas
+jaconv
+janome
+tenacity
