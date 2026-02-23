@@ -47,14 +47,17 @@
 
 <script>
 /**
- * Physical Opening Reset: 外部JS参照を全削除し、ここに直書き。
+ * Cloud-Native In-Memory Architecture:
+ * 1. Read all videos/tasks from window.AVATAR_APP_DATA injected by Python.
+ * 2. No filesystem 'fetch' calls.
+ * 3. Use Data URIs for absolute stability.
  */
 (function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sid = urlParams.get('sid') || window.SESSION_ID || '';
-    const buster = urlParams.get('t') || window.CACHE_BUSTER || Date.now();
-    const taskUrl = sid ? `/static/task_${sid}.json?t=${buster}` : `/static/task.json?t=${buster}`;
-
+    // 🚀 Data Injection from Python
+    const appData = window.AVATAR_APP_DATA || { videos: {}, task: null, sid: '' };
+    const videosB64 = appData.videos || {};
+    const task = appData.task || {};
+    
     const v = {
         idle: document.getElementById('video-idle'),
         normal: document.getElementById('video-normal'),
@@ -65,12 +68,6 @@
     const status = document.getElementById('status-bar');
     const overlay = document.getElementById('overlay');
 
-    const assets = { 
-        idle: '/static/idle_blink.webm', 
-        normal: '/static/talking_normal.webm', 
-        strong: '/static/talking_strong.webm', 
-        wait: '/static/talking_wait.webm' 
-    };
     let currentAudioUrl = null;
 
     // 🚀 GPU過負荷を防ぐため、見えない動画は確実に一時停止（pause）する
@@ -88,97 +85,90 @@
         });
     }
 
-    window.tid = sessionStorage.getItem('last_task_id') || null;
+    // Persist 'started' state across iframe reloads
     let isStarted = sessionStorage.getItem('avatar_started') === 'true';
-    let processingInterval = null;
-    let processingStartTime = 0;
+    let lastPlayedTaskId = sessionStorage.getItem('last_played_task_id') || null;
 
-    async function poll() {
-        try {
-            const r = await fetch(taskUrl + Date.now());
-            if (!r.ok) return;
-            const d = await r.json();
-            
-            if (d && d.task_id && d.task_id !== window.tid) {
-                window.tid = d.task_id;
-                sessionStorage.setItem('last_task_id', window.tid);
-                
-                if (d.task_id === "processing") {
-                    show('wait');
-                    status.style.display = 'block';
-                    
-                    processingStartTime = Date.now();
-                    clearInterval(processingInterval);
-                    processingInterval = setInterval(() => {
-                        const elapsed = (Date.now() - processingStartTime) / 1000;
-                        if (elapsed < 3) status.textContent = "🔍 与那国島の政策データベースを検索中...";
-                        else if (elapsed < 12) status.textContent = "🧠 AI阪口源太が最適な回答を構成中...";
-                        else status.textContent = "🎙️ 音声を生成中... もう少々お待ちください";
-                    }, 1000);
-                    return; 
-                }
+    function processTask(d) {
+        if (!d || !d.task_id || d.task_id === lastPlayedTaskId) return;
+        
+        // Mark as seen
+        if (d.task_id !== "processing") {
+            sessionStorage.setItem('last_played_task_id', d.task_id);
+            lastPlayedTaskId = d.task_id;
+        }
 
-                clearInterval(processingInterval);
-                
-                const isS = d.is_initial_greeting ? false : ['angry', 'power', 'strong', 'joy'].includes(d.emotion.toLowerCase());
-                const fullText = d.response_text || "";
-                const segments = fullText.match(/[^。、！？\n]+[。、！？\n]*/g) || [fullText];
-                let currentSegIndex = -1;
+        if (d.task_id === "processing") {
+            show('wait');
+            status.style.display = 'block';
+            status.textContent = "🎙️ AI阪口源太が回答を準備中...";
+            return;
+        }
 
-                // メモリリーク防止：古い音声データを破棄
-                if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-                const b = new Blob([Uint8Array.from(atob(d.audio_b64), c => c.charCodeAt(0))], { type: 'audio/mpeg' });
-                currentAudioUrl = URL.createObjectURL(b);
-                audio.src = currentAudioUrl;
-                
-                audio.onplay = () => { 
-                    show(isS ? 'strong' : 'normal'); 
-                    status.style.display = 'block'; 
-                };
+        // Generate Audio Blob from Base64
+        const isS = d.is_initial_greeting ? false : ['angry', 'power', 'strong', 'joy'].includes(d.emotion.toLowerCase());
+        const fullText = d.response_text || "";
+        const segments = fullText.match(/[^。、！？\n]+[。、！？\n]*/g) || [fullText];
+        let currentSegIndex = -1;
 
-                audio.ontimeupdate = () => {
-                    if (!audio.duration) return;
-                    const progress = audio.currentTime / audio.duration;
-                    let cumulativeRatio = 0;
-                    let targetIndex = 0;
-                    
-                    for (let i = 0; i < segments.length; i++) {
-                        cumulativeRatio += segments[i].length / fullText.length;
-                        if (progress <= cumulativeRatio) {
-                            targetIndex = i;
-                            break;
-                        }
-                    }
-                    
-                    if (targetIndex !== currentSegIndex && segments[targetIndex]) {
-                        currentSegIndex = targetIndex;
-                        status.textContent = segments[targetIndex];
-                    }
-                };
+        if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+        const b = new Blob([Uint8Array.from(atob(d.audio_b64), c => c.charCodeAt(0))], { type: 'audio/mpeg' });
+        currentAudioUrl = URL.createObjectURL(b);
+        audio.src = currentAudioUrl;
+        
+        audio.onplay = () => { 
+            show(isS ? 'strong' : 'normal'); 
+            status.style.display = 'block'; 
+        };
 
-                audio.onended = () => { 
-                    show('idle'); 
-                    status.style.display = 'none'; 
-                    status.textContent = '';
-                    audio.ontimeupdate = null;
-                };
-
-                audio.play().catch(e => console.warn(e));
+        audio.ontimeupdate = () => {
+            if (!audio.duration) return;
+            const progress = audio.currentTime / audio.duration;
+            let cumulativeRatio = 0;
+            let targetIndex = 0;
+            for (let i = 0; i < segments.length; i++) {
+                cumulativeRatio += segments[i].length / fullText.length;
+                if (progress <= cumulativeRatio) { targetIndex = i; break; }
             }
-        } catch (e) {}
+            if (targetIndex !== currentSegIndex && segments[targetIndex]) {
+                currentSegIndex = targetIndex;
+                status.textContent = segments[targetIndex];
+            }
+        };
+
+        audio.onended = () => { 
+            show('idle'); 
+            status.style.display = 'none'; 
+            status.textContent = '';
+            audio.ontimeupdate = null;
+        };
+
+        audio.play().catch(e => console.warn(e));
     }
 
     function startAvatar() {
         overlay.style.display = 'none';
         sessionStorage.setItem('avatar_started', 'true');
+        isStarted = true;
         show('idle'); 
-        setInterval(poll, 1000);
+        // Initial process
+        if (task) processTask(task);
     }
 
     overlay.onclick = startAvatar;
-    if (isStarted) startAvatar();
 
-    v.idle.src = assets.idle; v.normal.src = assets.normal; v.strong.src = assets.strong; v.wait.src = assets.wait;
+    // 🚀 Set Video Sources from Base64
+    v.idle.src = videosB64.idle || '';
+    v.normal.src = videosB64.normal || '';
+    v.strong.src = videosB64.strong || '';
+    v.wait.src = videosB64.wait || '';
+
+    // If already started, go straight to idle/processing
+    if (isStarted) {
+        overlay.style.display = 'none';
+        show('idle');
+        if (task) processTask(task);
+    }
 })();
 </script>
 </body>

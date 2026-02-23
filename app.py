@@ -123,6 +123,9 @@ if "avatar_placeholder" not in st.session_state:
 if "started" not in st.session_state:
     st.session_state.started = False
 
+if "current_avatar_task" not in st.session_state:
+    st.session_state.current_avatar_task = None
+
 
 # ============================================================
 # YouTube Monitor (start once)
@@ -178,20 +181,15 @@ def poll_results(placeholder, session_id: str):
                     "response_text": res["response_text"],
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
-                try:
-                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
-                    task_file = internal_dir / f"task_{session_id}.json"
-                    task_file.write_text(json.dumps(task_data), encoding="utf-8")
-                    
-                    if res.get("is_initial_greeting"):
-                        cache_file = internal_dir / "greeting_cache.json"
-                        try:
-                            cache_file.write_text(json.dumps(task_data), encoding="utf-8")
-                            logger.info("[App] Saved initial greeting to cache.")
-                        except Exception as e:
-                            logger.error(f"[App] Failed to save greeting cache: {e}")
-                except Exception as e:
-                    logger.error(f"Failed to write task.json: {e}")
+                
+                # 🚀 In-Memory State: Store directly in session state instead of writing to file
+                st.session_state.current_avatar_task = task_data
+                logger.info(f"[App] Updated in-memory task: {task_id}")
+                
+                if res.get("is_initial_greeting"):
+                    # Cache greeting task data in session state for other users/sessions if needed,
+                    # but for this user, it's already in current_avatar_task.
+                    st.session_state.greeting_task_cache = task_data
 
                 # Still update history for UI
                 st.session_state.history.append({
@@ -221,33 +219,38 @@ def poll_results(placeholder, session_id: str):
 # Render Avatar Component
 # ============================================================
 def render_avatar(placeholder, session_id: str):
-    """Render the avatar using direct HTML injection to bypass iframe/component ghosts."""
+    """Render the avatar using direct HTML injection with Base64 videos to bypass all filesystem/MIME issues."""
     try:
         html_path = LOCAL_STATIC_DIR / "avatar.html"
-        if not html_path.exists():
-            # Try internal static as fallback
-            internal_static = PathManager.get_internal_static()
-            if internal_static:
-                html_path = Path(internal_static) / "avatar.html"
-        
         if html_path.exists():
             html_content = html_path.read_text(encoding="utf-8")
             
-            # 🚀 Inject session ID and cache buster into the script section
-            # Pass sid and timestamp directly into the HTML string
+            # 1. 🚀 WebM動画のBase64マップを取得
+            video_map = PathManager.get_video_base64_map()
+            
+            # 2. 🚀 現在のタスクデータを取得
+            task_data = st.session_state.get("current_avatar_task")
+            
+            # 3. 🚀 データをHTMLに注入
+            app_data_json = json.dumps({
+                "videos": video_map,
+                "task": task_data,
+                "sid": session_id
+            })
+            
             injection = f"""
             <script>
-                window.SESSION_ID = "{session_id}";
-                window.CACHE_BUSTER = "{time.time()}";
+                window.AVATAR_APP_DATA = {app_data_json};
             </script>
             """
             final_html = html_content.replace("<head>", f"<head>{injection}")
             
             with placeholder:
+                # 🚀 Cloud-Native: すべてをメモリ上で完結させる
                 st.components.v1.html(final_html, height=600, scrolling=False)
         else:
             with placeholder:
-                st.error("Avatar asset not found.")
+                st.error("avatar.html not found.")
     except Exception as e:
         logger.error(f"Failed to render avatar: {e}")
         with placeholder:
@@ -286,12 +289,12 @@ def main():
         cleanup_stale_tasks()
         st.session_state.last_cleanup = time.time()
 
-    # 🚀 Ghost Cleaning: Streamlitの内部staticフォルダへ素材を強制コピー
-    # これにより MIME type エラー (text/html) を回避し、動画/JSを確実に公開する
+    # 🚀 Ghost Cleaning is now disabled in favor of In-Memory Media Injection
     if "deployment_done" not in st.session_state:
-        internal_path = PathManager.ensure_safe_deployment()
+        # We still call it but it now just returns the local path as a dummy
+        PathManager.ensure_safe_deployment()
         st.session_state.deployment_done = True
-        logger.info(f"[App] Deployment to internal static: {internal_path}")
+        logger.info(f"[App] In-memory mode active (Filesystem reset skipped)")
 
     # Auto-refresh every 60 seconds (Heartbeat only)
     st_autorefresh(interval=60000, limit=None, key="auto_refresh")
@@ -303,19 +306,13 @@ def main():
     # Trigger Initial Greeting
     if "greeting_queued" not in st.session_state:
         st.session_state.greeting_queued = True
-        internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
-        cache_file = internal_dir / "greeting_cache.json"
-        task_file = internal_dir / f"task_{sid}.json"
         
-        # 🚀 キャッシュパスと状態のデバッグログを出力
-        logger.info(f"[Cache Debug] Checking cache at: {cache_file}")
-        
-        if cache_file.exists():
-            import shutil
-            shutil.copy(str(cache_file), str(task_file))
-            logger.info(f"[Cache Debug] HIT! Served greeting from cache for session {sid}")
+        # Check session-state-based cache
+        if "greeting_task_cache" in st.session_state:
+            st.session_state.current_avatar_task = st.session_state.greeting_task_cache
+            logger.info(f"[Cache] HIT! Served initial greeting from session state.")
         else:
-            logger.info(f"[Cache Debug] MISS! Cache not found. Queuing generation for {sid}")
+            logger.info(f"[Cache] MISS! Queuing initial greeting generation.")
             item = ChatItem(
                 message_text="与那国島の町民の皆さんに自己紹介と、これからの島への想いを短く話してから、質問を募集してください。",
                 author_name="システム",
@@ -376,15 +373,9 @@ def main():
             if send_pressed and user_input:
                 logger.info(f"[Input] User submitted: {user_input[:20]}")
                 
-                # Queue Cleaning: Clear stale session task immediately
-                try:
-                    content = json.dumps({"task_id": "processing"})
-                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
-                    task_file = internal_dir / f"task_{sid}.json"
-                    task_file.write_text(content, encoding="utf-8")
-                    logger.info(f"[Input] Cleaned task file for {sid}")
-                except Exception as e:
-                    logger.warning(f"Failed to clear task_{sid}.json: {e}")
+                # Queue Cleaning: Clear state immediately
+                st.session_state.current_avatar_task = {"task_id": "processing"}
+                logger.info(f"[Input] Cleared local task status for {sid}")
 
                 item = ChatItem(
                     message_text=user_input,

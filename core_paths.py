@@ -25,27 +25,34 @@ class PathManager:
         return "/static/"
 
     @classmethod
-    def ensure_safe_deployment(cls):
-        """Physical Reset: Direct deployment to root and forced cleanup."""
-        internal_static = cls.get_internal_static()
-        if not internal_static or not internal_static.parent.exists():
-            return str(cls.LOCAL_STATIC)
+    @st.cache_data
+    def get_video_base64_map(cls):
+        """動画ファイルをBase64文字列のマップとして取得 (インメモリ注入用)"""
+        import base64
+        video_map = {}
+        files = {
+            "idle": "idle_blink.webm",
+            "normal": "talking_normal.webm",
+            "strong": "talking_strong.webm",
+            "wait": "talking_wait.webm"
+        }
+        for key, filename in files.items():
+            path = cls.LOCAL_STATIC / filename
+            if path.exists():
+                try:
+                    b64 = base64.b64encode(path.read_bytes()).decode("utf-8")
+                    video_map[key] = f"data:video/webm;base64,{b64}"
+                    st.write(f"Encoded {filename}") # Diagnostic
+                except Exception as e:
+                    st.error(f"Failed to encode {filename}: {e}")
+            else:
+                st.warning(f"Video not found: {filename}")
+        return video_map
 
-        try:
-            # 玄関フォルダが存在しなければ作成
-            internal_static.mkdir(exist_ok=True)
-            
-            # Direct Deployment: Copy all to the publicly exposed folder
-            for f in cls.LOCAL_STATIC.glob("*"):
-                if f.suffix.lower() == ".js" or f.suffix.lower() == ".map" or f.name.startswith("index"):
-                    continue
-                target = internal_static / f.name
-                if target.exists():
-                    target.unlink()
-                shutil.copy2(f, target)
-            return str(internal_static)
-        except Exception as e:
-            return str(cls.LOCAL_STATIC)
+    @classmethod
+    def ensure_safe_deployment(cls):
+        """【廃止予定】インメモリ方式への移行により、物理コピーは不要になりました。"""
+        return str(cls.LOCAL_STATIC)
 
 APP_DIR = Path(__file__).parent
 LOCAL_STATIC_DIR = APP_DIR / "static"
