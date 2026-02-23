@@ -52,22 +52,23 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             while pure_base64.endswith('n'):
                 pure_base64 = pure_base64[:-1]
                 
-            # 念押し：末尾のゴミ文字列を除去
-            for garbage in ["PRIVATEKEY", "END"]:
-                if pure_base64.endswith(garbage):
-                    pure_base64 = pure_base64[:-len(garbage)]
-            
-            # 3. パディング（=）の厳密な再計算
+            # 3. 🚀 パディングの「リセットと再計算」
+            # 既存のイコールを一旦すべて削除（これが3重イコールを防ぐ鍵です）
             pure_base64 = pure_base64.rstrip('=')
+            
+            # 正しいBase64の長さ（4の倍数）になるよう、必要な分だけ（0〜2個）付け足す
             missing_padding = len(pure_base64) % 4
-            if missing_padding:
-                pure_base64 += "=" * (4 - missing_padding)
+            if missing_padding == 2:
+                pure_base64 += "=="
+            elif missing_padding == 3:
+                pure_base64 += "="
+            # ※余りが1の場合はBase64として不正なため、何もしないのが正解です
             
             # 完璧なPEM形式に整形
             formatted_body = "\n".join([pure_base64[i:i+64] for i in range(0, len(pure_base64), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
             
-            logging.info(f"[FINAL_Purity] LEN: {len(pure_base64)}, TAIL: {pure_base64[-5:]}")
+            logging.info(f"[MATH_CHECK] LEN: {len(pure_base64)}, TAIL: {pure_base64[-10:]}")
             
             info = {
                 "type": "service_account",
