@@ -44,11 +44,16 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             raw_key = st.secrets["GCP_PRIVATE_KEY"]
             
             # 🚀 物理再構築ロジック
-            # 1. デリミタ、空白、引用符、エスケープ文字をすべて排除
+            # 1. デリミタを消去し、すべてのゴミ（空白、引用符、エスケープ、イコール）を除去
             content = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-            content = re.sub(r'[\s\'"\\n]', '', content) # すべての空白、引用符、バックスラッシュ、n を削除
+            content = re.sub(r'[\s\'"\\n=]', '', content) # すべての空白、引用符、バックスラッシュ、n、イコールを削除
             
-            # 2. 正しいPEM形式に整形（64文字ごとに改行）
+            # 2. 🚀 Base64の長さを4の倍数に強制調整（パディング補正）
+            missing_padding = len(content) % 4
+            if missing_padding:
+                content += "=" * (4 - missing_padding)
+            
+            # 3. 正しいPEM形式に整形（64文字ごとに改行）
             formatted_content = "\n".join([content[i:i+64] for i in range(0, len(content), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_content}\n-----END PRIVATE KEY-----\n"
             
@@ -60,7 +65,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded reconstructed credentials from st.secrets (Cloud environment)")
+            logger.info("[TTS] Loaded reconstructed credentials with padding correction (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
