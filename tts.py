@@ -44,31 +44,37 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             import logging
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # 1. Base64文字以外を完全に排除
+            # 1. 🚀 物理的な「ハサミ入れ」 (Domain Extraction)
+            # フッターの "END" より前、かつ "MII" 以降のみを対象にする
+            # これにより "PRIVATEKEY" などの紛らわしい文字列を物理的に排除
+            end_idx = raw_key.find("END")
+            if end_idx != -1:
+                raw_key = raw_key[:end_idx]
+                
+            start_idx = raw_key.find("MII")
+            if start_idx != -1:
+                raw_key = raw_key[start_idx:]
+            
+            # 2. 許可されたBase64文字だけを抽出
             pure_base64 = re.sub(r'[^A-Za-z0-9+/]', '', raw_key)
             
-            # 2. 🚀 究極の末尾切除ロジック
-            # Base64として有効な文字の中に、改行の残骸 'n' が紛れ込んでいるケースを排除
+            # 3. 末尾の 'n' 対策
             while pure_base64.endswith('n'):
                 pure_base64 = pure_base64[:-1]
                 
-            # 3. 🚀 パディングの「リセットと再計算」
-            # 既存のイコールを一旦すべて削除（これが3重イコールを防ぐ鍵です）
+            # 4. パディングのリセットと再計算
             pure_base64 = pure_base64.rstrip('=')
-            
-            # 正しいBase64の長さ（4の倍数）になるよう、必要な分だけ（0〜2個）付け足す
             missing_padding = len(pure_base64) % 4
             if missing_padding == 2:
                 pure_base64 += "=="
             elif missing_padding == 3:
                 pure_base64 += "="
-            # ※余りが1の場合はBase64として不正なため、何もしないのが正解です
             
             # 完璧なPEM形式に整形
             formatted_body = "\n".join([pure_base64[i:i+64] for i in range(0, len(pure_base64), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
             
-            logging.info(f"[MATH_CHECK] LEN: {len(pure_base64)}, TAIL: {pure_base64[-10:]}")
+            logging.info(f"[DOMAIN_CHECK] LEN: {len(pure_base64)}, TAIL: {pure_base64[-10:]}")
             
             info = {
                 "type": "service_account",
@@ -78,7 +84,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded pure Base64 credentials with targeted 'n' fix (Cloud environment)")
+            logger.info("[TTS] Loaded pure Base64 credentials with domain extraction fix (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
