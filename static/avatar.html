@@ -5,7 +5,20 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100% !important; width: 100% !important; background: #000; overflow: hidden; }
     #avatar-container { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; }
-    #avatar-container video { position: absolute; display: block !important; width: 100% !important; height: 100% !important; object-fit: cover; opacity: 0; z-index: 1; }
+    
+    /* Double Buffering Layers */
+    .v-layer { 
+        position: absolute; 
+        display: block !important; 
+        width: 100% !important; 
+        height: 100% !important; 
+        object-fit: cover; 
+        opacity: 0; 
+        z-index: 1; 
+        transition: opacity 0.4s ease-in-out; /* Smooth cross-fade */
+    }
+    .v-layer.active { opacity: 1; z-index: 10; }
+
     #status-bar { 
         position: absolute; 
         bottom: 30px; 
@@ -18,8 +31,7 @@
         line-height: 1.4;
         text-align: center;
         z-index: 1000; 
-        background: transparent; /* 背景を完全に透過 */
-        /* 強い黒の縁取りとドロップシャドウで視認性を確保 */
+        background: transparent; 
         text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0px 4px 6px rgba(0,0,0,0.8);
         font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif; 
         display: none; 
@@ -31,10 +43,10 @@
 </head>
 <body>
     <div id="avatar-container">
-        <video id="video-idle" loop muted playsinline></video>
-        <video id="video-normal" loop muted playsinline></video>
-        <video id="video-strong" loop muted playsinline></video>
-        <video id="video-wait" loop muted playsinline></video>
+        <!-- Dual Layers for Seamless Transitions -->
+        <video id="v-a" class="v-layer" loop muted playsinline aria-hidden="true"></video>
+        <video id="v-b" class="v-layer" loop muted playsinline aria-hidden="true"></video>
+        
         <div id="overlay">
             <div style="text-align: center;">
                 <div class="play-icon"></div>
@@ -46,67 +58,85 @@
     <audio id="audio-player" style="display:none;"></audio>
 
 <script>
-/**
- * Cloud-Native In-Memory Architecture:
- * 1. Read all videos/tasks from window.AVATAR_APP_DATA injected by Python.
- * 2. No filesystem 'fetch' calls.
- * 3. Use Data URIs for absolute stability.
- */
 (function() {
-    // 🚀 Data Injection from Python
     const appData = window.AVATAR_APP_DATA || { video_urls: {}, task: null, sid: '', buster: Date.now() };
     const urls = appData.video_urls || {};
     const task = appData.task || {};
     const buster = appData.buster || Date.now();
     
-    const v = {
-        idle: document.getElementById('video-idle'),
-        normal: document.getElementById('video-normal'),
-        strong: document.getElementById('video-strong'),
-        wait: document.getElementById('video-wait')
-    };
+    const layers = [
+        document.getElementById('v-a'),
+        document.getElementById('v-b')
+    ];
     const audio = document.getElementById('audio-player');
     const status = document.getElementById('status-bar');
     const overlay = document.getElementById('overlay');
 
+    let activeIdx = 0; // Current visible layer
     let currentAudioUrl = null;
-
-    // 🚀 GPU過負荷を防ぐため、見えない動画は確実に一時停止（pause）する
-    function show(type) {
-        Object.keys(v).forEach(k => {
-            if (k === type) {
-                v[k].style.opacity = '1';
-                v[k].style.zIndex = '100';
-                v[k].play().catch(e => console.warn(e));
-            } else {
-                v[k].style.opacity = '0';
-                v[k].style.zIndex = '1';
-                v[k].pause(); 
-            }
-        });
-    }
-
-    // Persist 'started' state across iframe reloads
     let isStarted = sessionStorage.getItem('avatar_started') === 'true';
     let lastPlayedTaskId = sessionStorage.getItem('last_played_task_id') || null;
+
+    /**
+     * Seamless Switch via Double Buffering
+     */
+    function switchVideo(type) {
+        const nextUrl = urls[type];
+        if (!nextUrl) return;
+
+        const nextIdx = (activeIdx + 1) % 2;
+        const currentLayer = layers[activeIdx];
+        const nextLayer = layers[nextIdx];
+        const fullNextUrl = `${nextUrl}?v=${buster}`;
+
+        // If same video is already playing, just ensure it's playing
+        if (nextLayer.src.includes(nextUrl) && nextLayer.classList.contains('active')) {
+            nextLayer.play().catch(e => {});
+            return;
+        }
+
+        // 1. Pre-load in background layer
+        nextLayer.src = fullNextUrl;
+        nextLayer.load();
+
+        // 2. Trigger swap when ready
+        nextLayer.oncanplay = () => {
+            nextLayer.oncanplay = null; // Prevent multi-trigger
+            
+            // Start background playback
+            nextLayer.play().then(() => {
+                // Perform Cross-fade
+                nextLayer.classList.add('active');
+                currentLayer.classList.remove('active');
+                
+                // Update pointers
+                activeIdx = nextIdx;
+                
+                // Cleanup previous layer after fade finishes
+                setTimeout(() => {
+                    if (layers[(nextIdx + 1) % 2] !== nextLayer) {
+                        layers[(nextIdx + 1) % 2].pause();
+                    }
+                }, 500);
+            }).catch(e => console.warn("Play failed:", e));
+        };
+    }
 
     function processTask(d) {
         if (!d || !d.task_id || d.task_id === lastPlayedTaskId) return;
         
-        // Mark as seen
-        if (d.task_id !== "processing") {
+        if (d.task_id !== "waiting" && d.task_id !== "processing") {
             sessionStorage.setItem('last_played_task_id', d.task_id);
             lastPlayedTaskId = d.task_id;
         }
 
         if (d.task_id === "waiting" || d.task_id === "processing") {
-            show('wait');
+            switchVideo('wait');
             status.style.display = 'block';
             status.textContent = "🎙️ AI阪口源太が回答を準備中...";
             return;
         }
 
-        // Generate Audio Blob from Base64
         const isS = d.is_initial_greeting ? false : ['angry', 'power', 'strong', 'joy'].includes(d.emotion.toLowerCase());
         const fullText = d.response_text || "";
         const segments = fullText.match(/[^。、！？\n]+[。、！？\n]*/g) || [fullText];
@@ -118,7 +148,7 @@
         audio.src = currentAudioUrl;
         
         audio.onplay = () => { 
-            show(isS ? 'strong' : 'normal'); 
+            switchVideo(isS ? 'strong' : 'normal'); 
             status.style.display = 'block'; 
         };
 
@@ -138,7 +168,7 @@
         };
 
         audio.onended = () => { 
-            show('idle'); 
+            switchVideo('idle'); 
             status.style.display = 'none'; 
             status.textContent = '';
             audio.ontimeupdate = null;
@@ -151,24 +181,22 @@
         overlay.style.display = 'none';
         sessionStorage.setItem('avatar_started', 'true');
         isStarted = true;
-        show('idle'); 
-        // Initial process
+        
+        // Load initial idle
+        layers[activeIdx].src = `${urls.idle}?v=${buster}`;
+        layers[activeIdx].classList.add('active');
+        layers[activeIdx].play().catch(e => {});
+
         if (task) processTask(task);
     }
 
     overlay.onclick = startAvatar;
 
-    // 🚀 Set Video Sources from URLs (Cachable)
-    // Local Streamlit uses /static/ alias. Adding buster to avoid stale renders.
-    v.idle.src = urls.idle ? `${urls.idle}?v=${buster}` : '';
-    v.normal.src = urls.normal ? `${urls.normal}?v=${buster}` : '';
-    v.strong.src = urls.strong ? `${urls.strong}?v=${buster}` : '';
-    v.wait.src = urls.wait ? `${urls.wait}?v=${buster}` : '';
-
-    // If already started, go straight to idle/processing
     if (isStarted) {
         overlay.style.display = 'none';
-        show('idle');
+        layers[activeIdx].src = `${urls.idle}?v=${buster}`;
+        layers[activeIdx].classList.add('active');
+        layers[activeIdx].play().catch(e => {});
         if (task) processTask(task);
     }
 })();
