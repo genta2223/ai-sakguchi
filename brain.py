@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import google.generativeai as genai
+from google.generativeai import types
 import pandas as pd
 import streamlit as st
 from langchain_community.vectorstores import FAISS
@@ -220,9 +221,9 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
         return reply, "Neutral"
 
     model = genai.GenerativeModel(
-        "gemini-2.0-flash",
+        model_name="gemini-2.0-flash",
         generation_config={"response_mime_type": "application/json"},
-        tools=[{"google_search": {}}] # 🚀 最新のSDK要件: 辞書形式で定義
+        tools=[{"google_search": {}}]
     )
 
     system_prompt = _build_system_prompt(text, api_key=api_key, use_cache=use_cache)
