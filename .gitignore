@@ -25,3 +25,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Credentials
+*.json
+.streamlit/*.json
+!greeting_cache.json

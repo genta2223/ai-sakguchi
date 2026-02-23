@@ -27,12 +27,20 @@ DEFAULT_NG_MESSAGE = "その質問には答えられません。私はまだ学�
 DEFAULT_FALLBACK_METADATA = {"row": 1, "image": "unknown.png"}
 
 
-def _configure_genai():
-    """Configure Google GenAI from st.secrets."""
-    api_key = st.secrets.get("GOOGLE_API_KEY", "")
+def _configure_genai(api_key: str = None):
+    """Configure Google GenAI. Uses api_key if provided, else st.secrets."""
     if api_key:
         genai.configure(api_key=api_key)
         os.environ["GOOGLE_API_KEY"] = api_key
+    else:
+        # Only try st.secrets if we are in the main thread (context exists)
+        try:
+            api_key = st.secrets.get("GOOGLE_API_KEY", "")
+            if api_key:
+                genai.configure(api_key=api_key)
+                os.environ["GOOGLE_API_KEY"] = api_key
+        except:
+            pass
 
 
 def check_ng(text: str) -> tuple[bool, str]:
@@ -53,56 +61,89 @@ def check_ng(text: str) -> tuple[bool, str]:
     return False, ""
 
 
-@st.cache_resource
-def _load_faiss_qa():
-    """Load FAISS QA database (cached)."""
-    _configure_genai()
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+def _load_faiss_qa_internal(api_key: str = None):
+    """Actual loading of FAISS QA index."""
+    logger.info("[Brain] Loading FAISS QA index...")
+    _configure_genai(api_key)
+    # Ensure embeddings also get the key if it's external
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001",
+        google_api_key=api_key
+    )
     vector = FAISS.load_local(
         str(FAISS_QA_DB_DIR), embeddings, allow_dangerous_deserialization=True
     )
+    logger.info("[Brain] FAISS QA index loaded.")
     return vector
 
-
 @st.cache_resource
-def _load_faiss_knowledge():
-    """Load FAISS Knowledge database (cached)."""
-    _configure_genai()
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+def _load_faiss_qa_cached():
+    """Cached wrapper for UI thread."""
+    return _load_faiss_qa_internal(st.secrets.get("GOOGLE_API_KEY"))
+
+def _load_faiss_knowledge_internal(api_key: str = None):
+    """Actual loading of FAISS Knowledge index."""
+    logger.info("[Brain] Loading FAISS Knowledge index...")
+    _configure_genai(api_key)
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001",
+        google_api_key=api_key
+    )
     vector = FAISS.load_local(
         str(FAISS_KNOWLEDGE_DB_DIR), embeddings, allow_dangerous_deserialization=True
     )
+    logger.info("[Brain] FAISS Knowledge index loaded.")
     return vector
 
+@st.cache_resource
+def _load_faiss_knowledge_cached():
+    """Cached wrapper for UI thread."""
+    return _load_faiss_knowledge_internal(st.secrets.get("GOOGLE_API_KEY"))
 
-def get_multiple_qa(query: str, top_k: int = 5) -> list[str]:
+
+def get_multiple_qa(query: str, top_k: int = 5, api_key: str = None, use_cache: bool = True) -> list[str]:
     """回答例を取得する (FAISS only)."""
     try:
-        vector = _load_faiss_qa()
+        logger.info(f"[Brain] Retrieving QA matches for: {query[:20]}...")
+        if use_cache:
+            vector = _load_faiss_qa_cached()
+        else:
+            vector = _load_faiss_qa_internal(api_key)
+            
         retriever = vector.as_retriever(search_kwargs={"k": top_k})
         context_docs = retriever.invoke(query)
+        logger.info(f"[Brain] QA Retrieval done: {len(context_docs)} matches.")
         return [doc.page_content for doc in context_docs[:top_k]]
     except Exception as e:
         logger.warning(f"QA retrieval failed: {e}")
         return []
 
 
-def get_multiple_knowledge(query: str, top_k: int = 5) -> list[tuple[str, dict]]:
+def get_multiple_knowledge(query: str, top_k: int = 5, api_key: str = None, use_cache: bool = True) -> list[tuple[str, dict]]:
     """RAGナレッジを取得する (FAISS only)."""
     try:
-        vector = _load_faiss_knowledge()
+        logger.info(f"[Brain] Retrieving Knowledge matches for: {query[:20]}...")
+        if use_cache:
+            vector = _load_faiss_knowledge_cached()
+        else:
+            vector = _load_faiss_knowledge_internal(api_key)
+            
         retriever = vector.as_retriever(search_kwargs={"k": top_k})
         context_docs = retriever.invoke(query)
+        logger.info(f"[Brain] Knowledge Retrieval done: {len(context_docs)} matches.")
         return [(doc.page_content, doc.metadata) for doc in context_docs[:top_k]]
     except Exception as e:
         logger.warning(f"Knowledge retrieval failed: {e}")
         return [("知識の取得に失敗しました。", DEFAULT_FALLBACK_METADATA)]
 
 
-def _build_system_prompt(query: str) -> str:
+def _build_system_prompt(query: str, api_key: str = None, use_cache: bool = True) -> str:
     """システムプロンプトを構築する (RAG付き)."""
-    rag_qa = "\n".join(get_multiple_qa(query=query, top_k=5))
-    rag_knowledges = get_multiple_knowledge(query=query, top_k=5)
+    logger.info("[Brain] Building system prompt...")
+    rag_qa_list = get_multiple_qa(query=query, top_k=5, api_key=api_key, use_cache=use_cache)
+    rag_qa = "\n".join(rag_qa_list)
+    
+    rag_knowledges = get_multiple_knowledge(query=query, top_k=5, api_key=api_key, use_cache=use_cache)
     rag_knowledge = "\n".join([f"---\n{k}" for k, _ in rag_knowledges])
 
     system_prompt = f"""あなたは与那国町議会議員の阪口源太（さかぐちげんた）としてYoutube上でコメントに返信するAITuberです。
@@ -154,14 +195,14 @@ response = {{
     return system_prompt
 
 
-def generate_response(text: str) -> tuple[str, str]:
+def generate_response(text: str, api_key: str = None, use_cache: bool = True) -> tuple[str, str]:
     """
     Generate AI response for a given text.
 
     Returns:
         (response_text, emotion)
     """
-    _configure_genai()
+    _configure_genai(api_key)
 
     # NG check
     ng_judge, reply = check_ng(text)
@@ -173,11 +214,18 @@ def generate_response(text: str) -> tuple[str, str]:
         generation_config={"response_mime_type": "application/json"},
     )
 
-    system_prompt = _build_system_prompt(text)
+    system_prompt = _build_system_prompt(text, api_key=api_key, use_cache=use_cache)
     messages = system_prompt + "\n" + text
 
-    response = model.generate_content(messages)
-    json_reply = response.text
+    try:
+        logger.info(f"[Brain] Sending to Gemini ({len(messages)} chars)...")
+        response = model.generate_content(messages)
+        json_reply = response.text
+        logger.info(f"[Brain] Gemini Response received: {len(json_reply)} chars.")
+    except Exception as e:
+        logger.error(f"[Brain] Gemini API Error: {e}")
+        return DEFAULT_NG_MESSAGE, "Neutral"
+
     emotion = "Neutral"
 
     try:

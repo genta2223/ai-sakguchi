@@ -2,28 +2,29 @@
 app.py — Streamlit Cloud AI Avatar (与那国町議会議員 阪口源太)
 Main application: WebM video avatar + Cloud TTS + Gemini RAG + YouTube chat.
 """
-import base64
 import logging
 import time
-from pathlib import Path
+import threading
+import json
+import hashlib
+import uuid
 from queue import Queue, Empty
 
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+import shutil
 
-from brain import generate_response
-from tts import synthesize_speech
 from youtube_monitor import ChatItem, start_youtube_monitor
+
+# --- Modular Imports ---
+from core_paths import PathManager, LOCAL_STATIC_DIR
+from core_ai_worker import init_worker
 
 # ============================================================
 # Configuration
 # ============================================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-APP_DIR = Path(__file__).parent
-VIDEOS_DIR = APP_DIR / "videos"
-COMPONENT_HTML = APP_DIR / "avatar_component.html"
 
 st.set_page_config(
     page_title="AI阪口源太 - 与那国町議会議員",
@@ -78,6 +79,10 @@ if "queue" not in st.session_state:
 
 if "processing" not in st.session_state:
     st.session_state.processing = False
+if "last_proc_start" not in st.session_state:
+    st.session_state.last_proc_start = 0.0
+if "progress_msg" not in st.session_state:
+    st.session_state.progress_msg = "Ready"
 
 if "current_audio" not in st.session_state:
     st.session_state.current_audio = None  # {audio_b64, emotion, response_text}
@@ -89,8 +94,21 @@ if "yt_thread" not in st.session_state:
     st.session_state.yt_thread = None
     st.session_state.yt_stop = None
 
-if "startup_done" not in st.session_state:
-    st.session_state.startup_done = False
+if "output_queue" not in st.session_state:
+    st.session_state.output_queue = Queue()
+
+if "worker_thread" not in st.session_state:
+    st.session_state.worker_thread = None
+    st.session_state.worker_stop = None
+
+if "has_greeted" not in st.session_state:
+    st.session_state.has_greeted = False
+
+if "avatar_placeholder" not in st.session_state:
+    st.session_state.avatar_placeholder = None
+
+if "started" not in st.session_state:
+    st.session_state.started = False
 
 
 # ============================================================
@@ -113,8 +131,9 @@ def init_youtube_monitor():
 # ============================================================
 def queue_startup_greeting():
     """Queue the opening message on first run."""
-    if not st.session_state.startup_done:
-        st.session_state.startup_done = True
+    if not st.session_state.has_greeted:
+        st.session_state.has_greeted = True
+        logger.info("[App] Queuing startup greeting.")
         item = ChatItem(
             message_text="（System: 配信開始の挨拶をしてください。「与那国町議会議員の阪口源太です。町民のみなさんのご質問にお答えします」と言ってください）",
             author_name="System",
@@ -124,159 +143,234 @@ def queue_startup_greeting():
 
 
 # ============================================================
-# Process Queue
+# Process Queue Handlers
 # ============================================================
-def process_next_item():
-    """Process one item from the queue: Gemini → TTS → set audio state."""
-    if st.session_state.processing:
-        return
-    if st.session_state.current_audio is not None:
-        return  # Still playing
-
+def poll_results(placeholder, session_id: str):
+    """Checks the output queue for finished tasks."""
     try:
-        item: ChatItem = st.session_state.queue.get_nowait()
+        while True:
+            res = st.session_state.output_queue.get_nowait()
+            if res["type"] == "progress":
+                st.session_state.progress_msg = res["msg"]
+                st.session_state.processing = True
+            elif res["type"] == "result":
+                # Robust Task ID: time + hash of text
+                text_hash = hashlib.md5(res["response_text"].encode("utf-8")).hexdigest()[:8]
+                task_id = f"{time.time()}_{text_hash}"
+
+                task_data = {
+                    "task_id": task_id,
+                    "audio_b64": res["audio_b64"],
+                    "emotion": res["emotion"],
+                    "response_text": res["response_text"],
+                    "is_initial_greeting": res.get("is_initial_greeting", False)
+                }
+                try:
+                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
+                    task_file = internal_dir / f"task_{session_id}.json"
+                    task_file.write_text(json.dumps(task_data), encoding="utf-8")
+                    
+                    # 🚀 初回挨拶の場合はキャッシュとして保存し、次回から使い回す
+                    if res.get("is_initial_greeting"):
+                        cache_file = internal_dir / "greeting_cache.json"
+                        try:
+                            cache_file.write_text(json.dumps(task_data), encoding="utf-8")
+                            logger.info("[App] Saved initial greeting to cache.")
+                        except Exception as e:
+                            logger.error(f"[App] Failed to save greeting cache: {e}")
+                except Exception as e:
+                    logger.error(f"Failed to write task.json: {e}")
+
+                # Still update history for UI
+                st.session_state.history.append({
+                    "question": res["question"],
+                    "author": res["author"],
+                    "response": res["response_text"],
+                    "emotion": res["emotion"],
+                })
+                if len(st.session_state.history) > 20:
+                    st.session_state.history = st.session_state.history[-20:]
+                
+                st.session_state.processing = False
+                st.session_state.progress_msg = "Ready"
+                # NO st.rerun() HERE - let the next auto-refresh update the UI 
+                # to prevent interrupting the JS execution that just started polling.
+            
+            elif res["type"] == "error":
+                with placeholder:
+                    st.error(f"Processing Error: {res['msg']}")
+                st.session_state.processing = False
+                st.session_state.progress_msg = "Error occurred"
     except Empty:
-        return
-
-    st.session_state.processing = True
-    logger.info(f"[Process] {item.author_name}: {item.message_text[:30]}...")
-
-    try:
-        # 1. Generate response
-        reply_text, emotion = generate_response(item.message_text)
-        logger.info(f"[Process] Reply: {reply_text[:40]}... Emotion: {emotion}")
-
-        # 2. Generate TTS audio (base64)
-        audio_b64 = synthesize_speech(reply_text)
-        logger.info(f"[Process] TTS OK: {len(audio_b64)} chars b64")
-
-        # 3. Set current audio for the component
-        st.session_state.current_audio = {
-            "audio_b64": audio_b64,
-            "emotion": emotion,
-            "response_text": reply_text,
-        }
-
-        # 4. Add to history
-        st.session_state.history.append({
-            "question": item.message_text if item.source != "system" else "(起動挨拶)",
-            "author": item.author_name,
-            "response": reply_text,
-            "emotion": emotion,
-        })
-        # Keep last 20
-        if len(st.session_state.history) > 20:
-            st.session_state.history = st.session_state.history[-20:]
-
-    except Exception as e:
-        logger.error(f"[Process] Error: {e}", exc_info=True)
-
-    st.session_state.processing = False
-
-
-# ============================================================
-# Video Source Encoding
-# ============================================================
-@st.cache_data
-def get_video_b64(filename: str) -> str:
-    """Read a video file and return base64 data URI."""
-    path = VIDEOS_DIR / filename
-    if not path.exists():
-        return ""
-    data = path.read_bytes()
-    b64 = base64.b64encode(data).decode("utf-8")
-    return f"data:video/webm;base64,{b64}"
+        pass
 
 
 # ============================================================
 # Render Avatar Component
 # ============================================================
-def render_avatar():
-    """Render the HTML5 video avatar component with current audio data."""
-    html_template = COMPONENT_HTML.read_text(encoding="utf-8")
-
-    # Inject video sources
-    idle_src = get_video_b64("idle_blink.webm")
-    normal_src = get_video_b64("talking_normal.webm")
-    strong_src = get_video_b64("talking_strong.webm")
-
-    html = html_template.replace("__IDLE_SRC__", idle_src)
-    html = html.replace("__NORMAL_SRC__", normal_src)
-    html = html.replace("__STRONG_SRC__", strong_src)
-
-    # If there's audio to play, inject a postMessage call
-    audio_data = st.session_state.current_audio
-    if audio_data:
-        inject_script = f"""
-        <script>
-            setTimeout(() => {{
-                window.postMessage({{
-                    type: 'avatar_command',
-                    action: 'play_audio',
-                    audio_b64: '{audio_data["audio_b64"]}',
-                    emotion: '{audio_data["emotion"]}',
-                    response_text: `{audio_data["response_text"].replace('`', "'")}`
-                }}, '*');
-            }}, 500);
-        </script>
-        """
-        html += inject_script
-        # Clear after injecting (will play once)
-        st.session_state.current_audio = None
-
-    st.components.v1.html(html, height=600, scrolling=False)
+def render_avatar(placeholder, session_id: str):
+    """Render the avatar using a physical absolute path."""
+    with placeholder:
+        # セッション中固定のIDを付与することで、再描画時の強制リロード（STARTボタンへの戻り）を防ぐ
+        st.components.v1.iframe(
+            src=f"/static/avatar.html?sid={session_id}",
+            height=600,
+            scrolling=False
+        )
 
 
 # ============================================================
 # Main UI Layout
 # ============================================================
+def ensure_static_deployment():
+    """Wrapper for PathManager's safe deployment."""
+    return PathManager.ensure_safe_deployment()
+
+def cleanup_stale_tasks():
+    """Remove session task files older than 1 hour from Local Static."""
+    try:
+        now = time.time()
+        for f in LOCAL_STATIC_DIR.glob("task_*.json"):
+            if now - f.stat().st_mtime > 3600:
+                f.unlink()
+                logger.info(f"[Cleanup] Removed stale task file: {f.name}")
+    except Exception as e:
+        logger.warning(f"[Cleanup] Failed: {e}")
+
 def main():
-    # Auto-refresh every 3 seconds to poll queue
-    st_autorefresh(interval=3000, limit=None, key="auto_refresh")
+    logger.info(f"[App] Starting AI Avatar App (Multi-User v19.2)")
+    
+    # Initialize Session ID
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())[:8]
+    
+    sid = st.session_state.session_id
+
+    # Periodic Cleanup
+    if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 600:
+        cleanup_stale_tasks()
+        st.session_state.last_cleanup = time.time()
+
+    # Ensure static files are accessible (One-time deployment per session)
+    if "ghost_cleaned_v6" not in st.session_state:
+        internal_path = ensure_static_deployment()
+        if internal_path:
+            st.session_state.internal_static_path = internal_path
+            st.session_state.ghost_cleaned_v6 = True
+            logger.info(f"[App] v6.0 Ghost Cleaning Complete: {internal_path}")
+
+    # Auto-refresh every 60 seconds (Heartbeat only)
+    st_autorefresh(interval=60000, limit=None, key="auto_refresh")
 
     # Initialize services
     init_youtube_monitor()
-    queue_startup_greeting()
+    init_worker()  # Start the AI-processing background thread
 
-    # Process any pending items
-    process_next_item()
-
-    # --- Avatar Area (top) ---
-    render_avatar()
-
-    # --- Input Area (bottom) ---
-    if not is_embed:
-        st.markdown("---")
-        cols = st.columns([6, 1])
-        with cols[0]:
-            user_input = st.text_input(
-                "💬 質問を入力",
-                placeholder="与那国島の未来について教えてください...",
-                key="user_input",
-                label_visibility="collapsed",
-            )
-        with cols[1]:
-            send_pressed = st.button("送信", type="primary", use_container_width=True)
-
-        if send_pressed and user_input:
+    # Trigger Initial Greeting
+    if "greeting_queued" not in st.session_state:
+        st.session_state.greeting_queued = True
+        internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
+        cache_file = internal_dir / "greeting_cache.json"
+        task_file = internal_dir / f"task_{sid}.json"
+        
+        # 🚀 キャッシュパスと状態のデバッグログを出力
+        logger.info(f"[Cache Debug] Checking cache at: {cache_file}")
+        
+        if cache_file.exists():
+            import shutil
+            shutil.copy(str(cache_file), str(task_file))
+            logger.info(f"[Cache Debug] HIT! Served greeting from cache for session {sid}")
+        else:
+            logger.info(f"[Cache Debug] MISS! Cache not found. Queuing generation for {sid}")
             item = ChatItem(
-                message_text=user_input,
-                author_name="阪口源太",
-                source="direct",
+                message_text="与那国島の町民の皆さんに自己紹介と、これからの島への想いを短く話してから、質問を募集してください。",
+                author_name="システム",
+                source="system",
+                is_initial_greeting=True
             )
             st.session_state.queue.put(item)
+
+    # --- Avatar Area (top) ---
+    avatar_container = st.empty()
+
+    # polling status (pass container for error display)
+    poll_results(avatar_container, sid)
+
+    render_avatar(avatar_container, sid)
+    
+    # Mark as started so subsequent reruns (heartbeat or full) include the flag
+    st.session_state.started = True
+
+    # --- Processing indicator / Queue status ---
+    if st.session_state.processing:
+        # Show queue transparency
+        q_size = st.session_state.queue.qsize()
+        if q_size > 0:
+            st.warning(f"現在、他の町民の方の質問に回答中です。（あと {q_size} 人待ち）")
+        
+        st.info(f"AI阪口源太が考え中... ({st.session_state.progress_msg})")
+        if st.button("強制リセット (停止した場合)", key="force_reset"):
+            # Clear everything
+            st.session_state.processing = False
+            st.session_state.current_audio = None
+            st.session_state.progress_msg = "Reset"
+            st.session_state.started = False
+            # Clear queues (re-init)
+            st.session_state.queue = Queue()
+            st.session_state.output_queue = Queue()
+            st.toast("処理をリセットしました")
+            # Inject JS to clear localStorage if possible
+            st.components.v1.html("<script>localStorage.clear(); window.parent.location.reload();</script>", height=0)
             st.rerun()
 
-        # --- Response History (compact) ---
-        if st.session_state.history:
-            with st.expander(f"📜 応答履歴 ({len(st.session_state.history)}件)", expanded=False):
-                for entry in reversed(st.session_state.history):
-                    st.markdown(
-                        f"**Q ({entry['author']}):** {entry['question'][:80]}  \n"
-                        f"**A [{entry['emotion']}]:** {entry['response']}"
-                    )
-                    st.divider()
+    # --- Input and History Area (Fragmented) ---
+    @st.fragment
+    def chat_area():
+        if not is_embed:
+            st.markdown("---")
+            cols = st.columns([6, 1])
+            with cols[0]:
+                user_input = st.text_input(
+                    "💬 質問を入力",
+                    placeholder="与那国島の未来について教えてください...",
+                    key="user_input_field", 
+                    label_visibility="collapsed",
+                )
+            with cols[1]:
+                send_pressed = st.button("送信", type="primary", use_container_width=True)
 
+            if send_pressed and user_input:
+                logger.info(f"[Input] User submitted: {user_input[:20]}")
+                
+                # Queue Cleaning: Clear stale session task immediately
+                try:
+                    content = json.dumps({"task_id": "processing"})
+                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
+                    task_file = internal_dir / f"task_{sid}.json"
+                    task_file.write_text(content, encoding="utf-8")
+                    logger.info(f"[Input] Cleaned task file for {sid}")
+                except Exception as e:
+                    logger.warning(f"Failed to clear task_{sid}.json: {e}")
+
+                item = ChatItem(
+                    message_text=user_input,
+                    author_name="町民",
+                    source="direct",
+                )
+                st.session_state.queue.put(item)
+                st.toast("質問を受け付けました。順番に回答します。")
+
+            # --- Response History (compact) ---
+            if st.session_state.history:
+                with st.expander(f"📜 応答履歴 ({len(st.session_state.history)}件)", expanded=False):
+                    for entry in reversed(st.session_state.history):
+                        st.markdown(
+                            f"**Q ({entry['author']}):** {entry['question'][:80]}  \n"
+                            f"**A [{entry['emotion']}]:** {entry['response']}"
+                        )
+                        st.divider()
+
+    chat_area()
 
 if __name__ == "__main__":
     main()

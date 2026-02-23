@@ -26,6 +26,7 @@ class ChatItem:
     message_text: str
     author_name: str
     source: str = "youtube"  # "youtube" or "direct"
+    is_initial_greeting: bool = False
     created_at: datetime = field(default_factory=datetime.now)
 
 

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html style="height: 100%; width: 100%;">
+<head>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100% !important; width: 100% !important; background: #000; overflow: hidden; }
+    #avatar-container { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+    #avatar-container video { position: absolute; display: block !important; width: 100% !important; height: 100% !important; object-fit: cover; opacity: 0; z-index: 1; }
+    #status-bar { 
+        position: absolute; 
+        bottom: 30px; 
+        left: 50%; 
+        transform: translateX(-50%); 
+        width: 90%; 
+        color: #ffffff; 
+        font-size: 24px; 
+        font-weight: bold;
+        line-height: 1.4;
+        text-align: center;
+        z-index: 1000; 
+        background: transparent; /* 背景を完全に透過 */
+        /* 強い黒の縁取りとドロップシャドウで視認性を確保 */
+        text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0px 4px 6px rgba(0,0,0,0.8);
+        font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif; 
+        display: none; 
+    }
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 2000; cursor: pointer; }
+    .play-icon { width: 80px; height: 80px; background: #0078d7; border-radius: 50%; display: flex; justify-content: center; align-items: center; border: 4px solid #fff; }
+    .play-icon::after { content: ''; border-top: 20px solid transparent; border-bottom: 20px solid transparent; border-left: 30px solid #fff; margin-left: 10px; }
+</style>
+</head>
+<body>
+    <div id="avatar-container">
+        <video id="video-idle" loop muted playsinline></video>
+        <video id="video-normal" loop muted playsinline></video>
+        <video id="video-strong" loop muted playsinline></video>
+        <video id="video-wait" loop muted playsinline></video>
+        <div id="overlay">
+            <div style="text-align: center;">
+                <div class="play-icon"></div>
+                <h2 style="color:#fff; margin-top:30px; font-family: sans-serif;">START AVATAR</h2>
+            </div>
+        </div>
+        <div id="status-bar">Initializing...</div>
+    </div>
+    <audio id="audio-player" style="display:none;"></audio>
+
+<script>
+/**
+ * Physical Opening Reset: 外部JS参照を全削除し、ここに直書き。
+ */
+(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sid = urlParams.get('sid') || '';
+    const taskUrl = sid ? `task_${sid}.json?t=` : `task.json?t=`;
+
+    const v = {
+        idle: document.getElementById('video-idle'),
+        normal: document.getElementById('video-normal'),
+        strong: document.getElementById('video-strong'),
+        wait: document.getElementById('video-wait')
+    };
+    const audio = document.getElementById('audio-player');
+    const status = document.getElementById('status-bar');
+    const overlay = document.getElementById('overlay');
+
+    const assets = { idle: 'idle_blink.webm', normal: 'talking_normal.webm', strong: 'talking_strong.webm', wait: 'talking_wait.webm' };
+    let currentAudioUrl = null;
+
+    // 🚀 GPU過負荷を防ぐため、見えない動画は確実に一時停止（pause）する
+    function show(type) {
+        Object.keys(v).forEach(k => {
+            if (k === type) {
+                v[k].style.opacity = '1';
+                v[k].style.zIndex = '100';
+                v[k].play().catch(e => console.warn(e));
+            } else {
+                v[k].style.opacity = '0';
+                v[k].style.zIndex = '1';
+                v[k].pause(); 
+            }
+        });
+    }
+
+    window.tid = sessionStorage.getItem('last_task_id') || null;
+    let isStarted = sessionStorage.getItem('avatar_started') === 'true';
+    let processingInterval = null;
+    let processingStartTime = 0;
+
+    async function poll() {
+        try {
+            const r = await fetch(taskUrl + Date.now());
+            if (!r.ok) return;
+            const d = await r.json();
+            
+            if (d && d.task_id && d.task_id !== window.tid) {
+                window.tid = d.task_id;
+                sessionStorage.setItem('last_task_id', window.tid);
+                
+                if (d.task_id === "processing") {
+                    show('wait');
+                    status.style.display = 'block';
+                    
+                    processingStartTime = Date.now();
+                    clearInterval(processingInterval);
+                    processingInterval = setInterval(() => {
+                        const elapsed = (Date.now() - processingStartTime) / 1000;
+                        if (elapsed < 3) status.textContent = "🔍 与那国島の政策データベースを検索中...";
+                        else if (elapsed < 12) status.textContent = "🧠 AI阪口源太が最適な回答を構成中...";
+                        else status.textContent = "🎙️ 音声を生成中... もう少々お待ちください";
+                    }, 1000);
+                    return; 
+                }
+
+                clearInterval(processingInterval);
+                
+                const isS = d.is_initial_greeting ? false : ['angry', 'power', 'strong', 'joy'].includes(d.emotion.toLowerCase());
+                const fullText = d.response_text || "";
+                const segments = fullText.match(/[^。、！？\n]+[。、！？\n]*/g) || [fullText];
+                let currentSegIndex = -1;
+
+                // メモリリーク防止：古い音声データを破棄
+                if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+                const b = new Blob([Uint8Array.from(atob(d.audio_b64), c => c.charCodeAt(0))], { type: 'audio/mpeg' });
+                currentAudioUrl = URL.createObjectURL(b);
+                audio.src = currentAudioUrl;
+                
+                audio.onplay = () => { 
+                    show(isS ? 'strong' : 'normal'); 
+                    status.style.display = 'block'; 
+                };
+
+                audio.ontimeupdate = () => {
+                    if (!audio.duration) return;
+                    const progress = audio.currentTime / audio.duration;
+                    let cumulativeRatio = 0;
+                    let targetIndex = 0;
+                    
+                    for (let i = 0; i < segments.length; i++) {
+                        cumulativeRatio += segments[i].length / fullText.length;
+                        if (progress <= cumulativeRatio) {
+                            targetIndex = i;
+                            break;
+                        }
+                    }
+                    
+                    if (targetIndex !== currentSegIndex && segments[targetIndex]) {
+                        currentSegIndex = targetIndex;
+                        status.textContent = segments[targetIndex];
+                    }
+                };
+
+                audio.onended = () => { 
+                    show('idle'); 
+                    status.style.display = 'none'; 
+                    status.textContent = '';
+                    audio.ontimeupdate = null;
+                };
+
+                audio.play().catch(e => console.warn(e));
+            }
+        } catch (e) {}
+    }
+
+    function startAvatar() {
+        overlay.style.display = 'none';
+        sessionStorage.setItem('avatar_started', 'true');
+        show('idle'); 
+        setInterval(poll, 1000);
+    }
+
+    overlay.onclick = startAvatar;
+    if (isStarted) startAvatar();
+
+    v.idle.src = assets.idle; v.normal.src = assets.normal; v.strong.src = assets.strong; v.wait.src = assets.wait;
+})();
+</script>
+</body>
+</html>

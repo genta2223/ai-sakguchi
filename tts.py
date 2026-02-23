@@ -5,6 +5,7 @@ Generates MP3 audio from text, returns base64-encoded string for browser playbac
 import base64
 import json
 import logging
+import threading
 
 import streamlit as st
 from google.cloud import texttospeech
@@ -28,35 +29,85 @@ NAME_READINGS = {
 }
 
 
+from pathlib import Path
+
+def _create_client(creds_json=None, private_key=None, client_email=None):
+    """
+    Creates Google Cloud TTS client prioritizing Streamlit Cloud Secrets (flat keys), 
+    then falling back to a physical JSON file for local development.
+    """
+    try:
+        # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
+        if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
+            info = {
+                "type": "service_account",
+                "private_key": st.secrets["GCP_PRIVATE_KEY"],
+                "client_email": st.secrets["GCP_CLIENT_EMAIL"],
+                "token_uri": "https://oauth2.googleapis.com/token",
+                # Extract project_id from email: e.g. "my-project@proj-id.iam.gserviceaccount.com" -> "proj-id"
+                "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
+            }
+            credentials = service_account.Credentials.from_service_account_info(info)
+            logger.info("[TTS] Loaded credentials from st.secrets (Cloud environment)")
+            return texttospeech.TextToSpeechClient(credentials=credentials)
+
+        # 2. SECONDARY: Direct JSON file (Local development)
+        credential_path = "C:/Users/genta/anno-ai-avatar-main/streamlit_app/.streamlit/gen-lang-client-0030599774-93fd0a8a3cb3.json"
+        json_path = Path(credential_path)
+        # Fallback for relative context
+        alt_path = Path("streamlit_app/.streamlit/gen-lang-client-0030599774-93fd0a8a3cb3.json")
+        
+        target_path = None
+        if json_path.exists():
+            target_path = str(json_path)
+        elif alt_path.exists():
+            target_path = str(alt_path)
+
+        if target_path:
+            logger.info(f"[TTS] Loaded credentials from file: {target_path}")
+            return texttospeech.TextToSpeechClient.from_service_account_file(target_path)
+
+        # 3. FALLBACK: Manual arguments (passed from worker)
+        if private_key and client_email:
+            info = {
+                "type": "service_account",
+                "project_id": client_email.split("@")[1].split(".")[0],
+                "private_key": private_key.replace("\\n", "\n").strip(),
+                "client_email": client_email,
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+            credentials = service_account.Credentials.from_service_account_info(info)
+            return texttospeech.TextToSpeechClient(credentials=credentials)
+
+        # Final Fallback: Attempt default discovery
+        logger.warning("[TTS] No specific credentials found, falling back to default discovery.")
+        return texttospeech.TextToSpeechClient()
+
+    except Exception as e:
+        logger.error(f"[TTS] Initialization failed: {e}")
+        if threading.current_thread() is threading.main_thread():
+             logger.warning("[TTS] Falling back to default client in main thread.")
+             return texttospeech.TextToSpeechClient()
+        raise e
+
 @st.cache_resource
-def _get_tts_client():
-    """Create and cache Google Cloud TTS client using st.secrets."""
-    creds_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "")
-    if creds_json:
-        info = json.loads(creds_json)
-        credentials = service_account.Credentials.from_service_account_info(info)
-        client = texttospeech.TextToSpeechClient(credentials=credentials)
-    else:
-        # Fall back to default credentials (e.g., local dev with GOOGLE_APPLICATION_CREDENTIALS env var)
-        client = texttospeech.TextToSpeechClient()
-    return client
+def _get_tts_client_cached():
+    """Cached wrapper for UI thread."""
+    return _create_client()
 
 
-def synthesize_speech(text: str) -> str:
+def synthesize_speech(text: str, creds_json: str = None, private_key: str = None, client_email: str = None, use_cache: bool = True) -> str:
     """
     Generate speech from text using Google Cloud TTS.
-
-    Args:
-        text: Japanese text to synthesize.
-
-    Returns:
-        Base64-encoded MP3 audio string (ready for HTML audio src).
     """
     # Apply name readings
     for kanji, reading in NAME_READINGS.items():
         text = text.replace(kanji, reading)
 
-    client = _get_tts_client()
+    if use_cache:
+        client = _get_tts_client_cached()
+    else:
+        client = _create_client(creds_json, private_key, client_email)
 
     synthesis_input = texttospeech.SynthesisInput(text=text)
     voice = texttospeech.VoiceSelectionParams(
