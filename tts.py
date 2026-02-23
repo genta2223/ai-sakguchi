@@ -40,36 +40,24 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     try:
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
-            import re
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # --- Binary-Clean Surgery ---
-            # 1. 前後の空白、改行、および引用符 (", ') を徹底的に削除
-            clean_key = raw_key.strip().strip('"').strip("'")
+            # --- Standard Cloud Parsing ---
+            # 文字としての "\\n" を実際の改行 "\n" に置換する (Cloud Secrets互換)
+            clean_key = raw_key.replace("\\n", "\n").strip()
             
-            # 2. クラウド特有のエスケープ文字 (\\n) を実際の改行へ（もしあれば）
-            if "\\n" in clean_key and "\n" not in clean_key:
-                clean_key = clean_key.replace("\\n", "\n")
-            
-            # 3. Base64データ部分のみを抽出 (ヘッダー/フッターを除去して純粋な本体へ)
-            body = clean_key.replace("-----BEGIN PRIVATE KEY-----", "")
-            body = body.replace("-----END PRIVATE KEY-----", "")
-            # Base64として有効な文字 (A-Z, a-z, 0-9, +, /, =) 以外をすべて排除
-            body_pure = re.sub(r'[^A-Za-z0-9+/=]', '', body)
-            
-            # 4. 64文字ごとに改行を入れる厳密なPEMフォーマットへ再構築
-            lines = [body_pure[i:i+64] for i in range(0, len(body_pure), 64)]
-            final_pem = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n"
-            
+            # 引用符が紛れ込んでいる場合は除去
+            clean_key = clean_key.strip('"').strip("'")
+
             info = {
                 "type": "service_account",
-                "private_key": final_pem,
+                "private_key": clean_key,
                 "client_email": st.secrets["GCP_CLIENT_EMAIL"],
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded credentials using Binary-Clean PEM Rebuilder.")
+            logger.info("[TTS] Loaded credentials using Standard Unified Parser.")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
