@@ -39,9 +39,13 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     try:
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
+            # 🚀 秘密鍵の文字列から不要な文字を消し、\nを本物の改行コードに変換する
+            raw_key = st.secrets["GCP_PRIVATE_KEY"]
+            sanitized_key = raw_key.replace("\\n", "\n").replace('"', '').strip()
+            
             info = {
                 "type": "service_account",
-                "private_key": st.secrets["GCP_PRIVATE_KEY"],
+                "private_key": sanitized_key,
                 "client_email": st.secrets["GCP_CLIENT_EMAIL"],
                 "token_uri": "https://oauth2.googleapis.com/token",
                 # Extract project_id from email: e.g. "my-project@proj-id.iam.gserviceaccount.com" -> "proj-id"

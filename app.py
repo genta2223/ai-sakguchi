@@ -166,13 +166,11 @@ def poll_results(placeholder, session_id: str):
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
                 try:
-                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
-                    task_file = internal_dir / f"task_{session_id}.json"
+                    task_file = LOCAL_STATIC_DIR / f"task_{session_id}.json"
                     task_file.write_text(json.dumps(task_data), encoding="utf-8")
                     
-                    # 🚀 初回挨拶の場合はキャッシュとして保存し、次回から使い回す
                     if res.get("is_initial_greeting"):
-                        cache_file = internal_dir / "greeting_cache.json"
+                        cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
                         try:
                             cache_file.write_text(json.dumps(task_data), encoding="utf-8")
                             logger.info("[App] Saved initial greeting to cache.")
@@ -213,7 +211,7 @@ def render_avatar(placeholder, session_id: str):
     with placeholder:
         # セッション中固定のIDを付与することで、再描画時の強制リロード（STARTボタンへの戻り）を防ぐ
         st.components.v1.iframe(
-            src=f"/static/avatar.html?sid={session_id}",
+            src=f"app/static/avatar.html?sid={session_id}",
             height=600,
             scrolling=False
         )
@@ -222,9 +220,9 @@ def render_avatar(placeholder, session_id: str):
 # ============================================================
 # Main UI Layout
 # ============================================================
-def ensure_static_deployment():
-    """Wrapper for PathManager's safe deployment."""
-    return PathManager.ensure_safe_deployment()
+# def ensure_static_deployment():
+#     """Wrapper for PathManager's safe deployment."""
+#     return PathManager.get_internal_static() or LOCAL_STATIC_DIR
 
 def cleanup_stale_tasks():
     """Remove session task files older than 1 hour from Local Static."""
@@ -251,13 +249,7 @@ def main():
         cleanup_stale_tasks()
         st.session_state.last_cleanup = time.time()
 
-    # Ensure static files are accessible (One-time deployment per session)
-    if "ghost_cleaned_v6" not in st.session_state:
-        internal_path = ensure_static_deployment()
-        if internal_path:
-            st.session_state.internal_static_path = internal_path
-            st.session_state.ghost_cleaned_v6 = True
-            logger.info(f"[App] v6.0 Ghost Cleaning Complete: {internal_path}")
+    # Static files handled by enableStaticServing = true in config.toml
 
     # Auto-refresh every 60 seconds (Heartbeat only)
     st_autorefresh(interval=60000, limit=None, key="auto_refresh")
@@ -269,9 +261,8 @@ def main():
     # Trigger Initial Greeting
     if "greeting_queued" not in st.session_state:
         st.session_state.greeting_queued = True
-        internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
-        cache_file = internal_dir / "greeting_cache.json"
-        task_file = internal_dir / f"task_{sid}.json"
+        cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
+        task_file = LOCAL_STATIC_DIR / f"task_{sid}.json"
         
         # 🚀 キャッシュパスと状態のデバッグログを出力
         logger.info(f"[Cache Debug] Checking cache at: {cache_file}")
@@ -345,8 +336,7 @@ def main():
                 # Queue Cleaning: Clear stale session task immediately
                 try:
                     content = json.dumps({"task_id": "processing"})
-                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
-                    task_file = internal_dir / f"task_{sid}.json"
+                    task_file = LOCAL_STATIC_DIR / f"task_{sid}.json"
                     task_file.write_text(content, encoding="utf-8")
                     logger.info(f"[Input] Cleaned task file for {sid}")
                 except Exception as e:
