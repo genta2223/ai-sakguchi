@@ -221,16 +221,37 @@ def poll_results(placeholder, session_id: str):
 # Render Avatar Component
 # ============================================================
 def render_avatar(placeholder, session_id: str):
-    """Render the avatar using the most robust pathing for Streamlit Cloud."""
-    with placeholder:
-        # 🚀 クラウド上での確実なパス指定
-        # スラッシュありの '/static/...' が最も安定します
-        # タイムスタンプ t={time.time()} でキャッシュを強制破棄
-        st.components.v1.iframe(
-            src=f"/static/avatar.html?sid={session_id}&t={time.time()}", 
-            height=600,
-            scrolling=False
-        )
+    """Render the avatar using direct HTML injection to bypass iframe/component ghosts."""
+    try:
+        html_path = LOCAL_STATIC_DIR / "avatar.html"
+        if not html_path.exists():
+            # Try internal static as fallback
+            internal_static = PathManager.get_internal_static()
+            if internal_static:
+                html_path = Path(internal_static) / "avatar.html"
+        
+        if html_path.exists():
+            html_content = html_path.read_text(encoding="utf-8")
+            
+            # 🚀 Inject session ID and cache buster into the script section
+            # Pass sid and timestamp directly into the HTML string
+            injection = f"""
+            <script>
+                window.SESSION_ID = "{session_id}";
+                window.CACHE_BUSTER = "{time.time()}";
+            </script>
+            """
+            final_html = html_content.replace("<head>", f"<head>{injection}")
+            
+            with placeholder:
+                st.components.v1.html(final_html, height=600, scrolling=False)
+        else:
+            with placeholder:
+                st.error("Avatar asset not found.")
+    except Exception as e:
+        logger.error(f"Failed to render avatar: {e}")
+        with placeholder:
+            st.error(f"Render Error: {e}")
 
 
 # ============================================================

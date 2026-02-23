@@ -51,8 +51,9 @@
  */
 (function() {
     const urlParams = new URLSearchParams(window.location.search);
-    const sid = urlParams.get('sid') || '';
-    const taskUrl = sid ? `task_${sid}.json?t=` : `task.json?t=`;
+    const sid = urlParams.get('sid') || window.SESSION_ID || '';
+    const buster = urlParams.get('t') || window.CACHE_BUSTER || Date.now();
+    const taskUrl = sid ? `/static/task_${sid}.json?t=${buster}` : `/static/task.json?t=${buster}`;
 
     const v = {
         idle: document.getElementById('video-idle'),
@@ -64,7 +65,12 @@
     const status = document.getElementById('status-bar');
     const overlay = document.getElementById('overlay');
 
-    const assets = { idle: 'idle_blink.webm', normal: 'talking_normal.webm', strong: 'talking_strong.webm', wait: 'talking_wait.webm' };
+    const assets = { 
+        idle: '/static/idle_blink.webm', 
+        normal: '/static/talking_normal.webm', 
+        strong: '/static/talking_strong.webm', 
+        wait: '/static/talking_wait.webm' 
+    };
     let currentAudioUrl = null;
 
     // 🚀 GPU過負荷を防ぐため、見えない動画は確実に一時停止（pause）する
