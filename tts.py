@@ -44,6 +44,14 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             import logging
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
+            # 🚀 究極のデバッグ：Pythonが認識している「生の文字列表現」を出力
+            raw_repr = repr(raw_key)
+            logging.info("===" * 15)
+            logging.info(f"[RAW_DEBUG] RAW_LEN: {len(raw_key)}")
+            logging.info(f"[RAW_DEBUG] HEAD_REPR: {raw_repr[:150]}")
+            logging.info(f"[RAW_DEBUG] TAIL_REPR: {raw_repr[-150:]}")
+            logging.info("===" * 15)
+            
             # 1. 🚀 最重要：JSON由来の「文字としての \\n」を完全に消去
             # バックスラッシュ+n、および実際の改行を無に帰す
             # これにより内部に紛れ込む 'n' を根絶する
