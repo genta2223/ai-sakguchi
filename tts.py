@@ -44,17 +44,21 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             import logging
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # 🚀 完全純化ロジック：許可されたBase64文字「以外」を完全に排除
-            # A-Z, a-z, 0-9, +, / 以外は一切許さない (パディング '=' も後で再計算)
+            # 1. Base64文字以外を完全に排除
             pure_base64 = re.sub(r'[^A-Za-z0-9+/]', '', raw_key)
             
-            # 🚀 重要：もし誤ってヘッダー文字列が混入していたら除去
-            if "BEGINPRIVATEKEY" in pure_base64:
-                pure_base64 = pure_base64.split("BEGINPRIVATEKEY")[-1]
-            if "ENDPRIVATEKEY" in pure_base64:
-                pure_base64 = pure_base64.split("ENDPRIVATEKEY")[0]
+            # 2. 🚀 究極の末尾切除ロジック
+            # Base64として有効な文字の中に、改行の残骸 'n' が紛れ込んでいるケースを排除
+            while pure_base64.endswith('n'):
+                pure_base64 = pure_base64[:-1]
+                
+            # 念押し：末尾のゴミ文字列を除去
+            for garbage in ["PRIVATEKEY", "END"]:
+                if pure_base64.endswith(garbage):
+                    pure_base64 = pure_base64[:-len(garbage)]
             
-            # パディング（=）の厳密な再計算
+            # 3. パディング（=）の厳密な再計算
+            pure_base64 = pure_base64.rstrip('=')
             missing_padding = len(pure_base64) % 4
             if missing_padding:
                 pure_base64 += "=" * (4 - missing_padding)
@@ -73,7 +77,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded pure Base64 credentials from st.secrets (Cloud environment)")
+            logger.info("[TTS] Loaded pure Base64 credentials with targeted 'n' fix (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
