@@ -40,35 +40,36 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     try:
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
-            raw_key = st.secrets.get("GCP_PRIVATE_KEY", "").strip()
+            import re
+            raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # --- Smart Newline Handling ---
-            # もし実際の改行(\n)が含まれているなら、そのまま使う（ローカル環境など）
-            if "\n" in raw_key:
-                clean_key = raw_key
-                logger.info("[TTS] Using private key with literal newlines (Local/Corrected mode)")
-            # 実際の改行がなく、リテラルの "\\n" が含まれている場合のみ置換（クラウド環境など）
-            elif "\\n" in raw_key:
-                clean_key = raw_key.replace("\\n", "\n")
-                logger.info("[TTS] Using private key with escaped newline replacement (Cloud fix mode)")
-            else:
-                # どちらでもない場合（一行のBase64など）は、念のためそのまま渡す
-                clean_key = raw_key
-                logger.warning("[TTS] Private key format unknown, using as-is.")
-
-            # PEMヘッダーの欠落補正（念のため）
-            if "-----BEGIN PRIVATE KEY-----" not in clean_key:
-                clean_key = f"-----BEGIN PRIVATE KEY-----\n{clean_key}\n-----END PRIVATE KEY-----\n"
-
+            # --- Binary-Clean Surgery ---
+            # 1. 前後の空白、改行、および引用符 (", ') を徹底的に削除
+            clean_key = raw_key.strip().strip('"').strip("'")
+            
+            # 2. クラウド特有のエスケープ文字 (\\n) を実際の改行へ（もしあれば）
+            if "\\n" in clean_key and "\n" not in clean_key:
+                clean_key = clean_key.replace("\\n", "\n")
+            
+            # 3. Base64データ部分のみを抽出 (ヘッダー/フッターを除去して純粋な本体へ)
+            body = clean_key.replace("-----BEGIN PRIVATE KEY-----", "")
+            body = body.replace("-----END PRIVATE KEY-----", "")
+            # Base64として有効な文字 (A-Z, a-z, 0-9, +, /, =) 以外をすべて排除
+            body_pure = re.sub(r'[^A-Za-z0-9+/=]', '', body)
+            
+            # 4. 64文字ごとに改行を入れる厳密なPEMフォーマットへ再構築
+            lines = [body_pure[i:i+64] for i in range(0, len(body_pure), 64)]
+            final_pem = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n"
+            
             info = {
                 "type": "service_account",
-                "private_key": clean_key,
+                "private_key": final_pem,
                 "client_email": st.secrets["GCP_CLIENT_EMAIL"],
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded credentials successfully using Smart Parser.")
+            logger.info("[TTS] Loaded credentials using Binary-Clean PEM Rebuilder.")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
