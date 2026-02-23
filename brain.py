@@ -28,19 +28,24 @@ DEFAULT_FALLBACK_METADATA = {"row": 1, "image": "unknown.png"}
 
 
 def _configure_genai(api_key: str = None):
-    """Configure Google GenAI. Uses api_key if provided, else st.secrets."""
+    """Configure Google GenAI. Uses api_key if provided, else os.environ or st.secrets."""
     if api_key:
         genai.configure(api_key=api_key)
         os.environ["GOOGLE_API_KEY"] = api_key
     else:
-        # Only try st.secrets if we are in the main thread (context exists)
-        try:
-            api_key = st.secrets.get("GOOGLE_API_KEY", "")
-            if api_key:
-                genai.configure(api_key=api_key)
-                os.environ["GOOGLE_API_KEY"] = api_key
-        except:
-            pass
+        # Prioritize os.environ which we synced in app.py
+        env_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        if env_key:
+            genai.configure(api_key=env_key)
+        else:
+            try:
+                # Fallback to secrets
+                secret_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+                if secret_key:
+                    genai.configure(api_key=secret_key)
+                    os.environ["GOOGLE_API_KEY"] = secret_key
+            except:
+                pass
 
 
 def check_ng(text: str) -> tuple[bool, str]:
@@ -65,10 +70,11 @@ def _load_faiss_qa_internal(api_key: str = None):
     """Actual loading of FAISS QA index."""
     logger.info("[Brain] Loading FAISS QA index...")
     _configure_genai(api_key)
-    # Ensure embeddings also get the key if it's external
+    # Ensure embeddings also get the key if it's external or from environment
+    target_key = api_key or os.environ.get("GOOGLE_API_KEY")
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
-        google_api_key=api_key
+        google_api_key=target_key
     )
     vector = FAISS.load_local(
         str(FAISS_QA_DB_DIR), embeddings, allow_dangerous_deserialization=True
@@ -79,15 +85,16 @@ def _load_faiss_qa_internal(api_key: str = None):
 @st.cache_resource
 def _load_faiss_qa_cached():
     """Cached wrapper for UI thread."""
-    return _load_faiss_qa_internal(st.secrets.get("GOOGLE_API_KEY"))
+    return _load_faiss_qa_internal(os.environ.get("GOOGLE_API_KEY"))
 
 def _load_faiss_knowledge_internal(api_key: str = None):
     """Actual loading of FAISS Knowledge index."""
     logger.info("[Brain] Loading FAISS Knowledge index...")
     _configure_genai(api_key)
+    target_key = api_key or os.environ.get("GOOGLE_API_KEY")
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
-        google_api_key=api_key
+        google_api_key=target_key
     )
     vector = FAISS.load_local(
         str(FAISS_KNOWLEDGE_DB_DIR), embeddings, allow_dangerous_deserialization=True
@@ -98,7 +105,7 @@ def _load_faiss_knowledge_internal(api_key: str = None):
 @st.cache_resource
 def _load_faiss_knowledge_cached():
     """Cached wrapper for UI thread."""
-    return _load_faiss_knowledge_internal(st.secrets.get("GOOGLE_API_KEY"))
+    return _load_faiss_knowledge_internal(os.environ.get("GOOGLE_API_KEY"))
 
 
 def get_multiple_qa(query: str, top_k: int = 5, api_key: str = None, use_cache: bool = True) -> list[str]:

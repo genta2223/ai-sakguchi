@@ -2,6 +2,14 @@
 app.py — Streamlit Cloud AI Avatar (与那国町議会議員 阪口源太)
 Main application: WebM video avatar + Cloud TTS + Gemini RAG + YouTube chat.
 """
+import os
+import streamlit as st
+
+# 🚀 Secrets の値を OS の環境変数へ強制同期（ライブラリの読み込みミスを防止）
+if "GEMINI_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+
 import logging
 import time
 import threading
@@ -10,7 +18,6 @@ import hashlib
 import uuid
 from queue import Queue, Empty
 
-import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import shutil
 
