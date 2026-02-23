@@ -40,16 +40,17 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     try:
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
+            import re
             raw_key = st.secrets["GCP_PRIVATE_KEY"]
             
-            # 🚀 最強の物理洗浄ロジック：
-            # 1. 引用符（シングル/ダブル）が混じっていたら完全に除去
-            # 2. 改行文字のリテラル（\\n や \n）を本物の改行コードに置換
-            # 3. 前後の空白をトリミング
-            clean_key = raw_key.replace("'", "").replace('"', '').replace("\\n", "\n").strip()
+            # 🚀 物理再構築ロジック
+            # 1. デリミタ、空白、引用符、エスケープ文字をすべて排除
+            content = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
+            content = re.sub(r'[\s\'"\\n]', '', content) # すべての空白、引用符、バックスラッシュ、n を削除
             
-            # 4. 万が一、手動で改行して貼り付けられた場合に備え、二重改行を防止しつつ整形
-            clean_key = clean_key.replace("\n\n", "\n")
+            # 2. 正しいPEM形式に整形（64文字ごとに改行）
+            formatted_content = "\n".join([content[i:i+64] for i in range(0, len(content), 64)])
+            clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_content}\n-----END PRIVATE KEY-----\n"
             
             info = {
                 "type": "service_account",
@@ -59,7 +60,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded optimized credentials from st.secrets (Cloud environment)")
+            logger.info("[TTS] Loaded reconstructed credentials from st.secrets (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
