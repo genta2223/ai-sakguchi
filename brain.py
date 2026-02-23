@@ -27,6 +27,10 @@ DEFAULT_NG_MESSAGE = "その質問には答えられません。私はまだ学�
 DEFAULT_FALLBACK_METADATA = {"row": 1, "image": "unknown.png"}
 
 
+# 🚀 環境変数、引数、グローバルの順で最も確実なものを採用
+target_api_key = os.environ.get("GOOGLE_API_KEY")
+
+
 def _configure_genai(api_key: str = None):
     """Configure Google GenAI. Prioritize st.secrets for reliability in Cloud threads."""
     if api_key:

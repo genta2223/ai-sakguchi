@@ -5,10 +5,11 @@ Main application: WebM video avatar + Cloud TTS + Gemini RAG + YouTube chat.
 import os
 import streamlit as st
 
-# 🚀 Secrets の値を OS の環境変数へ強制同期（ライブラリの読み込みミスを防止）
+# 🚀 どんなスレッドからでも参照できるよう、OSの環境変数にキーを強制セット
 if "GEMINI_API_KEY" in st.secrets:
     os.environ["GOOGLE_API_KEY"] = st.secrets["GEMINI_API_KEY"]
-    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 
 import logging
 import time
