@@ -40,15 +40,24 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     try:
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
+            import re
+            
             raw_key = st.secrets["GCP_PRIVATE_KEY"]
             
-            # 🚀 どんな環境・形式からの入力でも絶対にエラーにならない「完全再構築」
-            # 余計なヘッダーやフッターを削除
-            key_body = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-            # 空白や改行、\nや\rなどのゴミをすべて消し去る
-            key_body = ''.join(key_body.split())
+            # 🚀 ① まず「文字としての \n」や「\r」というゴミ文字列を完全に消し去る
+            raw_key = raw_key.replace("\\n", "").replace("\\r", "")
             
-            # 🚀 PEMの厳格な規格（64文字ごとに改行）に従って美しく再構築
+            # 🚀 ② BEGINとENDの間に挟まれた「暗号本体」だけを正規表現で正確にくり抜く
+            match = re.search(r'-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----', raw_key, flags=re.DOTALL)
+            if match:
+                key_body = match.group(1)
+            else:
+                key_body = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
+            
+            # 🚀 ③ 抽出した本体から、本物の改行や空白をすべて除去（純度100%のBase64にする）
+            key_body = re.sub(r'\s+', '', key_body)
+            
+            # 🚀 ④ PEMの厳格な規格（64文字ごとに改行）に従って美しく再構築
             wrapped_body = "\n".join(textwrap.wrap(key_body, 64))
             sanitized_key = f"-----BEGIN PRIVATE KEY-----\n{wrapped_body}\n-----END PRIVATE KEY-----\n"
             
@@ -57,7 +66,6 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "private_key": sanitized_key,
                 "client_email": st.secrets["GCP_CLIENT_EMAIL"],
                 "token_uri": "https://oauth2.googleapis.com/token",
-                # Extract project_id from email
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
