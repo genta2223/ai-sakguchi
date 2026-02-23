@@ -42,28 +42,26 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
             import re
             import logging
-            raw_key = st.secrets["GCP_PRIVATE_KEY"]
+            raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # 🚀 物理デバッグ：読み込んだ鍵の状態をログに強制出力
-            key_preview = f"HEAD:{raw_key[:20]}...TAIL:{raw_key[-20:]} (LEN:{len(raw_key)})"
-            logging.info(f"[DEBUG_KEY] {key_preview}")
+            # 🚀 外科的洗浄ロジック
+            # 1. ヘッダーとフッターを除いた「中身だけ」を抽出
+            core_data = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
             
-            # 1. 物理再構築（洗練版）：Base64として有効な文字以外をすべて除去
-            pure_base64 = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-            pure_base64 = re.sub(r'[^A-Za-z0-9+/=]', '', pure_base64)
+            # 2. 徹底排除：Base64以外をすべて消す
+            # ログで見つかった「残骸のn」や改行、空白を一掃
+            core_data = re.sub(r'[^A-Za-z0-9+/]', '', core_data) 
             
-            # 2. パディング補正
-            # 一旦イコールを除去して長さを測り、4の倍数になるようにイコールを付け直す
-            pure_base64 = pure_base64.rstrip('=')
-            missing_padding = len(pure_base64) % 4
+            # 3. パディング（=）の再計算
+            missing_padding = len(core_data) % 4
             if missing_padding:
-                pure_base64 += "=" * (4 - missing_padding)
+                core_data += "=" * (4 - missing_padding)
             
-            # 3. 正しいPEM形式に整形（64文字ごとに改行）
-            formatted_content = "\n".join([pure_base64[i:i+64] for i in range(0, len(pure_base64), 64)])
-            clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_content}\n-----END PRIVATE KEY-----\n"
+            # 4. 正しいPEM形式に整形
+            formatted_body = "\n".join([core_data[i:i+64] for i in range(0, len(core_data), 64)])
+            clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
             
-            logging.info(f"[DEBUG_CLEAN] HEAD:{clean_key[:30]}")
+            logging.info(f"[FIX_CHECK] CLEAN_LEN: {len(core_data)}, HEAD: {core_data[:10]}")
             
             info = {
                 "type": "service_account",
@@ -73,7 +71,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded debug-ready credentials from st.secrets (Cloud environment)")
+            logger.info("[TTS] Loaded surgically filtered credentials from st.secrets (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
