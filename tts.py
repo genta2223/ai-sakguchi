@@ -44,20 +44,24 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             import logging
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # 🚀 外科的洗浄ロジック
-            # 1. ヘッダーとフッターを除いた「中身だけ」を抽出
+            # 1. ヘッダー/フッターを除去し、前後をトリミング
             core_data = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
+            core_data = core_data.strip().strip("'").strip('"')
             
-            # 2. 徹底排除：Base64以外をすべて消す
-            # ログで見つかった「残骸のn」や改行、空白を一掃
-            core_data = re.sub(r'[^A-Za-z0-9+/]', '', core_data) 
+            # 2. Base64以外の文字を徹底排除
+            core_data = re.sub(r'[^A-Za-z0-9+/]', '', core_data)
             
-            # 3. パディング（=）の再計算
+            # 3. 🚀 重要：先頭のゴミ 'n' を狙い撃ち
+            # 先頭が 'n' で、次が 'MII' なら、その 'n' を削除
+            if core_data.startswith("nMII"):
+                core_data = core_data[1:]
+            
+            # 4. パディング（=）の再計算
             missing_padding = len(core_data) % 4
             if missing_padding:
                 core_data += "=" * (4 - missing_padding)
             
-            # 4. 正しいPEM形式に整形
+            # 5. 正しいPEM形式に整形
             formatted_body = "\n".join([core_data[i:i+64] for i in range(0, len(core_data), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
             
@@ -71,7 +75,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded surgically filtered credentials from st.secrets (Cloud environment)")
+            logger.info("[TTS] Loaded clean credentials with nMII fix (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
