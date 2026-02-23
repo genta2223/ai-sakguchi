@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import threading
+import textwrap
 
 import streamlit as st
 from google.cloud import texttospeech
@@ -46,8 +47,10 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             key_body = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
             # 空白や改行、\nや\rなどのゴミをすべて消し去る
             key_body = ''.join(key_body.split())
-            # 完璧なPEM形式でリビルド
-            sanitized_key = f"-----BEGIN PRIVATE KEY-----\n{key_body}\n-----END PRIVATE KEY-----\n"
+            
+            # 🚀 PEMの厳格な規格（64文字ごとに改行）に従って美しく再構築
+            wrapped_body = "\n".join(textwrap.wrap(key_body, 64))
+            sanitized_key = f"-----BEGIN PRIVATE KEY-----\n{wrapped_body}\n-----END PRIVATE KEY-----\n"
             
             info = {
                 "type": "service_account",
