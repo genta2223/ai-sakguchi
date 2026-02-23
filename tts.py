@@ -41,21 +41,29 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
             import re
+            import logging
             raw_key = st.secrets["GCP_PRIVATE_KEY"]
             
-            # 🚀 物理再構築ロジック
-            # 1. デリミタを消去し、すべてのゴミ（空白、引用符、エスケープ、イコール）を除去
-            content = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-            content = re.sub(r'[\s\'"\\n=]', '', content) # すべての空白、引用符、バックスラッシュ、n、イコールを削除
+            # 🚀 物理デバッグ：読み込んだ鍵の状態をログに強制出力
+            key_preview = f"HEAD:{raw_key[:20]}...TAIL:{raw_key[-20:]} (LEN:{len(raw_key)})"
+            logging.info(f"[DEBUG_KEY] {key_preview}")
             
-            # 2. 🚀 Base64の長さを4の倍数に強制調整（パディング補正）
-            missing_padding = len(content) % 4
+            # 1. 物理再構築（洗練版）：Base64として有効な文字以外をすべて除去
+            pure_base64 = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
+            pure_base64 = re.sub(r'[^A-Za-z0-9+/=]', '', pure_base64)
+            
+            # 2. パディング補正
+            # 一旦イコールを除去して長さを測り、4の倍数になるようにイコールを付け直す
+            pure_base64 = pure_base64.rstrip('=')
+            missing_padding = len(pure_base64) % 4
             if missing_padding:
-                content += "=" * (4 - missing_padding)
+                pure_base64 += "=" * (4 - missing_padding)
             
             # 3. 正しいPEM形式に整形（64文字ごとに改行）
-            formatted_content = "\n".join([content[i:i+64] for i in range(0, len(content), 64)])
+            formatted_content = "\n".join([pure_base64[i:i+64] for i in range(0, len(pure_base64), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_content}\n-----END PRIVATE KEY-----\n"
+            
+            logging.info(f"[DEBUG_CLEAN] HEAD:{clean_key[:30]}")
             
             info = {
                 "type": "service_account",
@@ -65,7 +73,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded reconstructed credentials with padding correction (Cloud environment)")
+            logger.info("[TTS] Loaded debug-ready credentials from st.secrets (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
