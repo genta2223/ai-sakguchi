@@ -40,44 +40,26 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     try:
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
-            import re
-            import logging
-            raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
+            raw_key = st.secrets.get("GCP_PRIVATE_KEY", "").strip()
             
-            # 1. 🚀 最重要：JSON由来の「文字としての \\n」を完全に消去
-            # バックスラッシュ+n、および実際の改行を無に帰す
-            # これにより内部に紛れ込む 'n' を根絶する
-            raw_key = raw_key.replace("\\n", "")
-            raw_key = raw_key.replace("\n", "")
-            raw_key = raw_key.replace("\r", "")
-            
-            # 2. 物理的なハサミ入れ (Domain Extraction)
-            # フッターの "END" より前、かつ "MII" 以降のみを対象にする
-            start_idx = raw_key.find("MII")
-            if start_idx != -1:
-                raw_key = raw_key[start_idx:]
-                
-            end_idx = raw_key.find("END")
-            if end_idx != -1:
-                raw_key = raw_key[:end_idx]
-            
-            # 3. Base64文字のみ抽出 (内部への 'n' 混入はこれで100%起きない)
-            pure_base64 = re.sub(r'[^A-Za-z0-9+/]', '', raw_key)
-            
-            # 4. パディングのリセットと再計算 (数学的整合)
-            pure_base64 = pure_base64.rstrip('=')
-            missing_padding = len(pure_base64) % 4
-            if missing_padding == 2:
-                pure_base64 += "=="
-            elif missing_padding == 3:
-                pure_base64 += "="
-            
-            # 完璧なPEM形式に整形
-            formatted_body = "\n".join([pure_base64[i:i+64] for i in range(0, len(pure_base64), 64)])
-            clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
-            
-            logging.info(f"[TRUE_FINAL_WIN] LEN: {len(pure_base64)}, TAIL: {pure_base64[-10:]}")
-            
+            # --- Smart Newline Handling ---
+            # もし実際の改行(\n)が含まれているなら、そのまま使う（ローカル環境など）
+            if "\n" in raw_key:
+                clean_key = raw_key
+                logger.info("[TTS] Using private key with literal newlines (Local/Corrected mode)")
+            # 実際の改行がなく、リテラルの "\\n" が含まれている場合のみ置換（クラウド環境など）
+            elif "\\n" in raw_key:
+                clean_key = raw_key.replace("\\n", "\n")
+                logger.info("[TTS] Using private key with escaped newline replacement (Cloud fix mode)")
+            else:
+                # どちらでもない場合（一行のBase64など）は、念のためそのまま渡す
+                clean_key = raw_key
+                logger.warning("[TTS] Private key format unknown, using as-is.")
+
+            # PEMヘッダーの欠落補正（念のため）
+            if "-----BEGIN PRIVATE KEY-----" not in clean_key:
+                clean_key = f"-----BEGIN PRIVATE KEY-----\n{clean_key}\n-----END PRIVATE KEY-----\n"
+
             info = {
                 "type": "service_account",
                 "private_key": clean_key,
@@ -86,7 +68,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded pure Base64 credentials with Definitive Fix (Cloud environment)")
+            logger.info("[TTS] Loaded credentials successfully using Smart Parser.")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
