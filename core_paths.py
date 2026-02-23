@@ -25,29 +25,19 @@ class PathManager:
         return "/static/"
 
     @classmethod
-    @st.cache_data
-    def get_video_base64_map(cls):
-        """動画ファイルをBase64文字列のマップとして取得 (インメモリ注入用)"""
-        import base64
-        video_map = {}
-        files = {
-            "idle": "idle_blink.webm",
-            "normal": "talking_normal.webm",
-            "strong": "talking_strong.webm",
-            "wait": "talking_wait.webm"
+    def get_video_url_map(cls):
+        """動画ファイルのURLマップを取得 (ハイブリッド配信用)"""
+        return {
+            "idle": "/static/idle_blink.webm",
+            "normal": "/static/talking_normal.webm",
+            "strong": "/static/talking_strong.webm",
+            "wait": "/static/talking_wait.webm"
         }
-        for key, filename in files.items():
-            path = cls.LOCAL_STATIC / filename
-            if path.exists():
-                try:
-                    b64 = base64.b64encode(path.read_bytes()).decode("utf-8")
-                    video_map[key] = f"data:video/webm;base64,{b64}"
-                    st.write(f"Encoded {filename}") # Diagnostic
-                except Exception as e:
-                    st.error(f"Failed to encode {filename}: {e}")
-            else:
-                st.warning(f"Video not found: {filename}")
-        return video_map
+
+    @classmethod
+    def get_video_base64_map(cls):
+        """【廃止予定】動画の軽量化により、URL参照(キャッシュ有効)に移行しました。"""
+        return {}
 
     @classmethod
     def ensure_safe_deployment(cls):

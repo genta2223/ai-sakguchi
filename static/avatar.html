@@ -54,9 +54,10 @@
  */
 (function() {
     // 🚀 Data Injection from Python
-    const appData = window.AVATAR_APP_DATA || { videos: {}, task: null, sid: '' };
-    const videosB64 = appData.videos || {};
+    const appData = window.AVATAR_APP_DATA || { video_urls: {}, task: null, sid: '', buster: Date.now() };
+    const urls = appData.video_urls || {};
     const task = appData.task || {};
+    const buster = appData.buster || Date.now();
     
     const v = {
         idle: document.getElementById('video-idle'),
@@ -157,11 +158,11 @@
 
     overlay.onclick = startAvatar;
 
-    // 🚀 Set Video Sources from Base64
-    v.idle.src = videosB64.idle || '';
-    v.normal.src = videosB64.normal || '';
-    v.strong.src = videosB64.strong || '';
-    v.wait.src = videosB64.wait || '';
+    // 🚀 Set Video Sources from URLs (Cachable)
+    v.idle.src = urls.idle ? `${urls.idle}?v=${buster}` : '';
+    v.normal.src = urls.normal ? `${urls.normal}?v=${buster}` : '';
+    v.strong.src = urls.strong ? `${urls.strong}?v=${buster}` : '';
+    v.wait.src = urls.wait ? `${urls.wait}?v=${buster}` : '';
 
     // If already started, go straight to idle/processing
     if (isStarted) {

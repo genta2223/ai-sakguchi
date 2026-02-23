@@ -219,23 +219,24 @@ def poll_results(placeholder, session_id: str):
 # Render Avatar Component
 # ============================================================
 def render_avatar(placeholder, session_id: str):
-    """Render the avatar using direct HTML injection with Base64 videos to bypass all filesystem/MIME issues."""
+    """Render the avatar using direct HTML injection with Hybrid Delivery (URL Videos + In-Memory Tasks)."""
     try:
         html_path = LOCAL_STATIC_DIR / "avatar.html"
         if html_path.exists():
             html_content = html_path.read_text(encoding="utf-8")
             
-            # 1. 🚀 WebM動画のBase64マップを取得
-            video_map = PathManager.get_video_base64_map()
+            # 1. 🚀 WebM動画のURLマップを取得 (軽量化したためURL参照でキャッシュを効かせる)
+            video_urls = PathManager.get_video_url_map()
             
-            # 2. 🚀 現在のタスクデータを取得
+            # 2. 🚀 現在のタスクデータを取得 (TTS音声は引き続きインメモリで即時受け渡し)
             task_data = st.session_state.get("current_avatar_task")
             
             # 3. 🚀 データをHTMLに注入
             app_data_json = json.dumps({
-                "videos": video_map,
+                "video_urls": video_urls,
                 "task": task_data,
-                "sid": session_id
+                "sid": session_id,
+                "buster": time.time()
             })
             
             injection = f"""
@@ -246,7 +247,6 @@ def render_avatar(placeholder, session_id: str):
             final_html = html_content.replace("<head>", f"<head>{injection}")
             
             with placeholder:
-                # 🚀 Cloud-Native: すべてをメモリ上で完結させる
                 st.components.v1.html(final_html, height=600, scrolling=False)
         else:
             with placeholder:
