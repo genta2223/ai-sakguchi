@@ -217,10 +217,10 @@ def poll_results(placeholder, session_id: str):
 def render_avatar(placeholder, session_id: str):
     """Render the avatar with explicit security bypass."""
     with placeholder:
-        # 🚀 sandbox属性を明示的に指定しないか、あるいは制限を緩める
+        # 🚀 クラウド上での確実なパス指定
         # Streamlitのiframeコンポーネントの仕様に基づき、srcURLを絶対パスから相対パスに調整
         st.components.v1.iframe(
-            src=f"static/avatar.html?sid={session_id}", # /app/を抜いた相対パスを試行
+            src=f"./static/avatar.html?sid={session_id}", 
             height=600,
             scrolling=False
         )

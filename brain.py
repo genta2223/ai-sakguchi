@@ -32,23 +32,16 @@ target_api_key = os.environ.get("GOOGLE_API_KEY")
 
 
 def _configure_genai(api_key: str = None):
-    """Configure Google GenAI. Prioritize st.secrets for reliability in Cloud threads."""
-    if api_key:
-        genai.configure(api_key=api_key)
-        os.environ["GOOGLE_API_KEY"] = api_key
+    """Configure Google GenAI. Prioritize the passed key or FINAL_MASTER_KEY."""
+    # 🚀 引数が最優先、次点に FINAL_MASTER_KEY (キャッシュ回避の最終手段)
+    key = api_key or st.secrets.get("FINAL_MASTER_KEY")
+    
+    if key:
+        genai.configure(api_key=key)
+        os.environ["GOOGLE_API_KEY"] = key
     else:
-        try:
-            # 🚀 1. FINAL_MASTER_KEY を最優先 (キャッシュ回避の最終手段)
-            secret_key = st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-            if secret_key:
-                genai.configure(api_key=secret_key)
-                os.environ["GOOGLE_API_KEY"] = secret_key
-                return
-        except:
-            pass
-
-        # 2. 環境変数を確認 (Local or App.py sync)
-        env_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        # フォールバック: 既存の環境変数
+        env_key = os.environ.get("GOOGLE_API_KEY")
         if env_key:
             genai.configure(api_key=env_key)
 
@@ -76,11 +69,8 @@ def _load_faiss_qa_internal(api_key: str = None):
     logger.info("[Brain] Loading FAISS QA index...")
     _configure_genai(api_key)
     
-    # 🚀 環境変数を介さず、新キー名を直接参照（キャッシュ回避の極致）
-    try:
-        final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-    except:
-        final_key = api_key or os.environ.get("GOOGLE_API_KEY") or target_api_key
+    # 🚀 引数 or FINAL_MASTER_KEY を直接参照
+    final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or os.environ.get("GOOGLE_API_KEY")
 
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
@@ -102,11 +92,8 @@ def _load_faiss_knowledge_internal(api_key: str = None):
     logger.info("[Brain] Loading FAISS Knowledge index...")
     _configure_genai(api_key)
     
-    # 🚀 環境変数を介さず、新キー名を直接参照（キャッシュ回避の極致）
-    try:
-        final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-    except:
-        final_key = api_key or os.environ.get("GOOGLE_API_KEY") or target_api_key
+    # 🚀 引数 or FINAL_MASTER_KEY を直接参照
+    final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or os.environ.get("GOOGLE_API_KEY")
 
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
