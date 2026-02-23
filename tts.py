@@ -38,16 +38,24 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     then falling back to a physical JSON file for local development.
     """
     try:
-        # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # --- Standard Cloud Parsing ---
-            # 文字としての "\\n" を実際の改行 "\n" に置換する (Cloud Secrets互換)
-            clean_key = raw_key.replace("\\n", "\n").strip()
+            # --- [Binary-Safe Parser] OS依存の改行コード変換を封じ込める ---
+            # 1. まず文字としての "\\n" を実際の改行 "\n" に変換（Cloud Secrets互換）
+            raw_decoded = raw_key.replace("\\n", "\n")
             
-            # 引用符が紛れ込んでいる場合は除去
-            clean_key = clean_key.strip('"').strip("'")
+            # 2. 全ての改行コード (\r\n, \n, \r) を剥ぎ取り、純粋なBase64の塊にする
+            body = "".join(raw_decoded.splitlines())
+            
+            # 3. 余計なヘッダー/フッター、引用符、空白を徹底的に除去
+            body = body.replace("-----BEGIN PRIVATE KEY-----", "")
+            body = body.replace("-----END PRIVATE KEY-----", "")
+            body = body.strip().strip('"').strip("'").strip()
+            
+            # 4. 純粋な \n (LF) だけでラップされた完璧な形式へ再構築
+            # (1624バイト目のエラーを避けるため、内部に余計なバイトを一切含ませない)
+            clean_key = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----"
 
             info = {
                 "type": "service_account",
@@ -57,7 +65,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded credentials using Standard Unified Parser.")
+            logger.info("[TTS] Loaded credentials using Binary-Safe Unified Parser.")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
