@@ -56,12 +56,17 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             if core_data.startswith("nMII"):
                 core_data = core_data[1:]
             
-            # 4. パディング（=）の再計算
+            # 4. 🚀 重要：末尾のゴミ 'n' を完全に切断
+            # ログによる InvalidLastSymbol (110) 解消のため、全末尾の 'n' を除去
+            while core_data.endswith('n'):
+                core_data = core_data[:-1]
+            
+            # 5. パディング（=）の再計算
             missing_padding = len(core_data) % 4
             if missing_padding:
                 core_data += "=" * (4 - missing_padding)
             
-            # 5. 正しいPEM形式に整形
+            # 6. 正しいPEM形式に整形
             formatted_body = "\n".join([core_data[i:i+64] for i in range(0, len(core_data), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
             
