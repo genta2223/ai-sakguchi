@@ -39,9 +39,9 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
     try:
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
-            # 🚀 秘密鍵の文字列から不要な文字を消し、\nを本物の改行コードに変換する
             raw_key = st.secrets["GCP_PRIVATE_KEY"]
-            sanitized_key = raw_key.replace("\\n", "\n").replace('"', '').strip()
+            # 🚀 どんな環境・形式からの入力でも確実にPEM形式として読み込めるようサニタイズ
+            sanitized_key = raw_key.replace("\\n", "\n").replace("\r", "").strip()
             
             info = {
                 "type": "service_account",
