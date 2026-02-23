@@ -44,22 +44,26 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
             import logging
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # 🚀 最高の「ガワ」に取り替える、アルティメット再構築
-            # 1. 中身（Base64部分）だけを抽出。ヘッダーやゴミを一掃
-            core_data = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-            core_data = re.sub(r'[^A-Za-z0-9+/]', '', core_data) # A-Z, a-z, 0-9, +, / 以外を全削除
+            # 🚀 完全純化ロジック：許可されたBase64文字「以外」を完全に排除
+            # A-Z, a-z, 0-9, +, / 以外は一切許さない (パディング '=' も後で再計算)
+            pure_base64 = re.sub(r'[^A-Za-z0-9+/]', '', raw_key)
             
-            # 2. パディング（=）の厳密な再計算
-            missing_padding = len(core_data) % 4
+            # 🚀 重要：もし誤ってヘッダー文字列が混入していたら除去
+            if "BEGINPRIVATEKEY" in pure_base64:
+                pure_base64 = pure_base64.split("BEGINPRIVATEKEY")[-1]
+            if "ENDPRIVATEKEY" in pure_base64:
+                pure_base64 = pure_base64.split("ENDPRIVATEKEY")[0]
+            
+            # パディング（=）の厳密な再計算
+            missing_padding = len(pure_base64) % 4
             if missing_padding:
-                core_data += "=" * (4 - missing_padding)
+                pure_base64 += "=" * (4 - missing_padding)
             
-            # 3. 完璧なPEM形式を「再構築」
-            # 64文字ごとに改行を入れたボディを作成し、正しいデリミタで包む
-            formatted_body = "\n".join([core_data[i:i+64] for i in range(0, len(core_data), 64)])
+            # 完璧なPEM形式に整形
+            formatted_body = "\n".join([pure_base64[i:i+64] for i in range(0, len(pure_base64), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
             
-            logging.info(f"[ULTIMATE_CHECK] DATA_LEN: {len(core_data)}, FIRST_10: {clean_key[:10]}")
+            logging.info(f"[FINAL_Purity] LEN: {len(pure_base64)}, TAIL: {pure_base64[-5:]}")
             
             info = {
                 "type": "service_account",
@@ -69,7 +73,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded ultimate reconstructed credentials from st.secrets (Cloud environment)")
+            logger.info("[TTS] Loaded pure Base64 credentials from st.secrets (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
