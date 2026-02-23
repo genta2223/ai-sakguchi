@@ -188,8 +188,16 @@ def poll_results(placeholder, session_id: str):
                 
                 if res.get("is_initial_greeting"):
                     # Cache greeting task data in session state for other users/sessions if needed,
-                    # but for this user, it's already in current_avatar_task.
                     st.session_state.greeting_task_cache = task_data
+                    
+                    # 🚀 物理ファイルにも永続保存 (再起動後の爆速起動のため)
+                    try:
+                        cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
+                        with open(cache_file, "w", encoding="utf-8") as f:
+                            json.dump(task_data, f, ensure_ascii=False, indent=2)
+                        logger.info(f"[Cache] Saved initial greeting to physical file: {cache_file.name}")
+                    except Exception as e:
+                        logger.warning(f"[Cache] Failed to save to physical file: {e}")
 
                 # Still update history for UI
                 st.session_state.history.append({
@@ -307,19 +315,35 @@ def main():
     if "greeting_queued" not in st.session_state:
         st.session_state.greeting_queued = True
         
-        # Check session-state-based cache
+        # 1. Level 1 (RAM): セッション内キャッシュをチェック
         if "greeting_task_cache" in st.session_state:
             st.session_state.current_avatar_task = st.session_state.greeting_task_cache
-            logger.info(f"[Cache] HIT! Served initial greeting from session state.")
+            logger.info(f"[Cache] RAM HIT! Serving greeting from session state.")
         else:
-            logger.info(f"[Cache] MISS! Queuing initial greeting generation.")
-            item = ChatItem(
-                message_text="与那国島の町民の皆さんに自己紹介と、これからの島への想いを短く話してから、質問を募集してください。",
-                author_name="システム",
-                source="system",
-                is_initial_greeting=True
-            )
-            st.session_state.queue.put(item)
+            # 2. Level 2 (Disk): 物理キャッシュファイルをチェック
+            cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
+            if cache_file.exists():
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        cached_data = json.load(f)
+                    st.session_state.greeting_task_cache = cached_data
+                    st.session_state.current_avatar_task = cached_data
+                    logger.info(f"[Cache] DISK HIT! Loaded greeting from {cache_file.name}")
+                except Exception as e:
+                    logger.warning(f"[Cache] Failed to load disk cache: {e}")
+                    # Fallback to level 3 if load fails
+                    pass
+            
+            # 3. Level 3 (Gemini): どちらもなければ新規生成を依頼
+            if "current_avatar_task" not in st.session_state or st.session_state.current_avatar_task is None:
+                logger.info(f"[Cache] MISS! Queuing initial greeting generation via Gemini.")
+                item = ChatItem(
+                    message_text="与那国島の町民の皆さんに自己紹介と、これからの島への想いを短く話してから、質問を募集してください。",
+                    author_name="システム",
+                    source="system",
+                    is_initial_greeting=True
+                )
+                st.session_state.queue.put(item)
 
     # --- Avatar Area (top) ---
     avatar_container = st.empty()
