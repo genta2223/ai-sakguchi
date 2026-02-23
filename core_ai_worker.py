@@ -21,7 +21,7 @@ SEMAPHORE = threading.Semaphore(MAX_CONCURRENCY)
 def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.Event, 
                  google_api_key: str, creds_json: str, private_key: str, client_email: str):
     """Background thread: Process Gemini and TTS with explicitly injected secrets."""
-    logger.info("[Worker] Thread started with injected secrets.")
+    logger.info("[Worker] Thread started with injected secrets (Bucket Relay).")
     while not stop_event.is_set():
         try:
             item = input_queue.get(timeout=1)
@@ -65,7 +65,7 @@ def init_worker():
     """Starts the background worker thread if not already running."""
     if st.session_state.worker_thread is None:
         # Get secrets once in the main thread
-        # 🚀 Secrets をメインスレッドで取得し、Workerへ明示的に渡す
+        # 🚀 Secrets をメインスレッドで取得し、Workerへ明示的に渡す (バケツリレー)
         api_key = st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GOOGLE_API_KEY") or ""
         creds_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON") or ""
         # Individual keys

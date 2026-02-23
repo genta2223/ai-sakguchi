@@ -69,12 +69,12 @@ def _load_faiss_qa_internal(api_key: str = None):
     logger.info("[Brain] Loading FAISS QA index...")
     _configure_genai(api_key)
     
-    # 🚀 引数 or FINAL_MASTER_KEY を直接参照
-    final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or os.environ.get("GOOGLE_API_KEY")
-
+    # 🚀 Secretsから直接、かつ引数を最優先で取得
+    target_key = api_key or st.secrets.get("FINAL_MASTER_KEY")
+    
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
-        google_api_key=final_key
+        google_api_key=target_key # 迷わずこれを渡す
     )
     vector = FAISS.load_local(
         str(FAISS_QA_DB_DIR), embeddings, allow_dangerous_deserialization=True
@@ -92,12 +92,12 @@ def _load_faiss_knowledge_internal(api_key: str = None):
     logger.info("[Brain] Loading FAISS Knowledge index...")
     _configure_genai(api_key)
     
-    # 🚀 引数 or FINAL_MASTER_KEY を直接参照
-    final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or os.environ.get("GOOGLE_API_KEY")
-
+    # 🚀 Secretsから直接、かつ引数を最優先で取得
+    target_key = api_key or st.secrets.get("FINAL_MASTER_KEY")
+    
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
-        google_api_key=final_key
+        google_api_key=target_key # 迷わずこれを渡す
     )
     vector = FAISS.load_local(
         str(FAISS_KNOWLEDGE_DB_DIR), embeddings, allow_dangerous_deserialization=True

@@ -222,10 +222,10 @@ def poll_results(placeholder, session_id: str):
 def render_avatar(placeholder, session_id: str):
     """Render the avatar using the most robust pathing for Streamlit Cloud."""
     with placeholder:
-        # 🚀 どんな環境でも「直下」の static を見に行かせるための指定
-        # スラッシュなしの 'static/...' が最も安定します
+        # 🚀 クラウド上での確実なパス指定
+        # スラッシュありの '/static/...' が最も安定します
         st.components.v1.iframe(
-            src=f"static/avatar.html?sid={session_id}", 
+            src=f"/static/avatar.html?sid={session_id}", 
             height=600,
             scrolling=False
         )
