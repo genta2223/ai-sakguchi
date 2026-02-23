@@ -215,11 +215,12 @@ def poll_results(placeholder, session_id: str):
 # Render Avatar Component
 # ============================================================
 def render_avatar(placeholder, session_id: str):
-    """Render the avatar using a physical absolute path."""
+    """Render the avatar with explicit security bypass."""
     with placeholder:
-        # セッション中固定のIDを付与することで、再描画時の強制リロード（STARTボタンへの戻り）を防ぐ
+        # 🚀 sandbox属性を明示的に指定しないか、あるいは制限を緩める
+        # Streamlitのiframeコンポーネントの仕様に基づき、srcURLを絶対パスから相対パスに調整
         st.components.v1.iframe(
-            src=f"/app/static/avatar.html?sid={session_id}",
+            src=f"static/avatar.html?sid={session_id}", # /app/を抜いた相対パスを試行
             height=600,
             scrolling=False
         )
