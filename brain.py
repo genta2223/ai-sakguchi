@@ -222,7 +222,7 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
     model = genai.GenerativeModel(
         "gemini-2.0-flash",
         generation_config={"response_mime_type": "application/json"},
-        tools=[{"google_search": {}}] # 🚀 最新情報をGoogle検索
+        tools=["google_search"] # 🚀 Google公式: Gemini 2.0 ではこの文字列形式が正解
     )
 
     system_prompt = _build_system_prompt(text, api_key=api_key, use_cache=use_cache)
