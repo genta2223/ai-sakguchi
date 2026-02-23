@@ -99,7 +99,7 @@
             lastPlayedTaskId = d.task_id;
         }
 
-        if (d.task_id === "processing") {
+        if (d.task_id === "waiting" || d.task_id === "processing") {
             show('wait');
             status.style.display = 'block';
             status.textContent = "🎙️ AI阪口源太が回答を準備中...";

@@ -373,9 +373,9 @@ def main():
             if send_pressed and user_input:
                 logger.info(f"[Input] User submitted: {user_input[:20]}")
                 
-                # Queue Cleaning: Clear state immediately
-                st.session_state.current_avatar_task = {"task_id": "processing"}
-                logger.info(f"[Input] Cleared local task status for {sid}")
+                # 🚀 考え中フラグを即座にセット (JS側で talking_wait.webm を再生させる)
+                st.session_state.current_avatar_task = {"task_id": "waiting", "audio_b64": None}
+                logger.info(f"[Input] Set 'waiting' state for avatar.")
 
                 item = ChatItem(
                     message_text=user_input,
@@ -384,6 +384,9 @@ def main():
                 )
                 st.session_state.queue.put(item)
                 st.toast("質問を受け付けました。順番に回答します。")
+                
+                # 🚀 アバターの状態をHTMLに即時反映させるため、アプリをリラン
+                st.rerun()
 
             # --- Response History (compact) ---
             if st.session_state.history:
