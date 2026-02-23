@@ -28,24 +28,25 @@ DEFAULT_FALLBACK_METADATA = {"row": 1, "image": "unknown.png"}
 
 
 def _configure_genai(api_key: str = None):
-    """Configure Google GenAI. Uses api_key if provided, else os.environ or st.secrets."""
+    """Configure Google GenAI. Prioritize st.secrets for reliability in Cloud threads."""
     if api_key:
         genai.configure(api_key=api_key)
         os.environ["GOOGLE_API_KEY"] = api_key
     else:
-        # Prioritize os.environ which we synced in app.py
+        try:
+            # 🚀 1. 直接 st.secrets を見に行く (Cloud環境で最も確実)
+            secret_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+            if secret_key:
+                genai.configure(api_key=secret_key)
+                os.environ["GOOGLE_API_KEY"] = secret_key
+                return
+        except:
+            pass
+
+        # 2. 環境変数を確認 (Local or App.py sync)
         env_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
         if env_key:
             genai.configure(api_key=env_key)
-        else:
-            try:
-                # Fallback to secrets
-                secret_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-                if secret_key:
-                    genai.configure(api_key=secret_key)
-                    os.environ["GOOGLE_API_KEY"] = secret_key
-            except:
-                pass
 
 
 def check_ng(text: str) -> tuple[bool, str]:
@@ -70,8 +71,13 @@ def _load_faiss_qa_internal(api_key: str = None):
     """Actual loading of FAISS QA index."""
     logger.info("[Brain] Loading FAISS QA index...")
     _configure_genai(api_key)
-    # Ensure embeddings also get the key if it's external or from environment
+    # 🚀 直接 st.secrets から抽出して確実に渡す
     target_key = api_key or os.environ.get("GOOGLE_API_KEY")
+    try:
+        target_key = target_key or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+    except:
+        pass
+
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
         google_api_key=target_key
@@ -91,7 +97,13 @@ def _load_faiss_knowledge_internal(api_key: str = None):
     """Actual loading of FAISS Knowledge index."""
     logger.info("[Brain] Loading FAISS Knowledge index...")
     _configure_genai(api_key)
+    # 🚀 直接 st.secrets から抽出して確実に渡す
     target_key = api_key or os.environ.get("GOOGLE_API_KEY")
+    try:
+        target_key = target_key or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+    except:
+        pass
+
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
         google_api_key=target_key
