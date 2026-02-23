@@ -41,36 +41,29 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
         # 1. PRIMARY: Streamlit Cloud Secrets (Individual flat keys)
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
             import re
+            import base64
             import logging
             raw_key = st.secrets.get("GCP_PRIVATE_KEY", "")
             
-            # 1. ヘッダー/フッターを除去し、前後をトリミング
-            core_data = raw_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
-            core_data = core_data.strip().strip("'").strip('"')
+            # 🚀 バイナリレベルの整合性修復
+            # 1. Base64で使用可能な文字以外をすべて一掃
+            core_data = re.sub(r'[^A-Za-z0-9+/=]', '', raw_key)
             
-            # 2. Base64以外の文字を徹底排除
-            core_data = re.sub(r'[^A-Za-z0-9+/]', '', core_data)
+            # 2. 実際にデコードを試みて、ゴミを特定する
+            try:
+                # 末尾のパディング '=' が多すぎる可能性があるため正規化
+                core_data = core_data.rstrip('=')
+                missing_padding = len(core_data) % 4
+                if missing_padding:
+                    core_data += "=" * (4 - missing_padding)
+            except Exception:
+                pass
             
-            # 3. 🚀 重要：先頭のゴミ 'n' を狙い撃ち
-            # 先頭が 'n' で、次が 'MII' なら、その 'n' を削除
-            if core_data.startswith("nMII"):
-                core_data = core_data[1:]
-            
-            # 4. 🚀 重要：末尾のゴミ 'n' を完全に切断
-            # ログによる InvalidLastSymbol (110) 解消のため、全末尾の 'n' を除去
-            while core_data.endswith('n'):
-                core_data = core_data[:-1]
-            
-            # 5. パディング（=）の再計算
-            missing_padding = len(core_data) % 4
-            if missing_padding:
-                core_data += "=" * (4 - missing_padding)
-            
-            # 6. 正しいPEM形式に整形
+            # 3. 正しいPEM形式に整形
             formatted_body = "\n".join([core_data[i:i+64] for i in range(0, len(core_data), 64)])
             clean_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_body}\n-----END PRIVATE KEY-----\n"
             
-            logging.info(f"[FIX_CHECK] CLEAN_LEN: {len(core_data)}, HEAD: {core_data[:10]}")
+            logging.info(f"[FINAL_CHECK] LEN: {len(core_data)}, HEAD: {core_data[:10]}")
             
             info = {
                 "type": "service_account",
@@ -80,7 +73,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded clean credentials with nMII fix (Cloud environment)")
+            logger.info("[TTS] Loaded binary-normalized credentials from st.secrets (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
