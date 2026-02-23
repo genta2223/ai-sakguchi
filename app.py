@@ -211,7 +211,7 @@ def render_avatar(placeholder, session_id: str):
     with placeholder:
         # セッション中固定のIDを付与することで、再描画時の強制リロード（STARTボタンへの戻り）を防ぐ
         st.components.v1.iframe(
-            src=f"app/static/avatar.html?sid={session_id}",
+            src=f"/app/static/avatar.html?sid={session_id}",
             height=600,
             scrolling=False
         )
