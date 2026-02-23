@@ -26,7 +26,9 @@ class PathManager:
 
     @classmethod
     def get_video_url_map(cls):
-        """動画ファイルのURLマップを取得 (ハイブリッド配信用)"""
+        """動画ファイルのURLマップを取得 (ハイブリッド配信用)
+        StreamlitのenableStaticServing=trueにより、/static/filename.webm でアクセス可能。
+        """
         return {
             "idle": "/static/idle_blink.webm",
             "normal": "/static/talking_normal.webm",

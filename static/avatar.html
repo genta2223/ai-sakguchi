@@ -159,6 +159,7 @@
     overlay.onclick = startAvatar;
 
     // 🚀 Set Video Sources from URLs (Cachable)
+    // Local Streamlit uses /static/ alias. Adding buster to avoid stale renders.
     v.idle.src = urls.idle ? `${urls.idle}?v=${buster}` : '';
     v.normal.src = urls.normal ? `${urls.normal}?v=${buster}` : '';
     v.strong.src = urls.strong ? `${urls.strong}?v=${buster}` : '';
