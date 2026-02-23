@@ -66,7 +66,7 @@ hide_css = """
         padding-right: 1rem;
     }
     /* Make iframe take full width */
-    iframe[title="streamlit_app.avatar_component"] {
+    iframe {
         width: 100% !important;
     }
 </style>
@@ -179,11 +179,12 @@ def poll_results(placeholder, session_id: str):
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
                 try:
-                    task_file = LOCAL_STATIC_DIR / f"task_{session_id}.json"
+                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
+                    task_file = internal_dir / f"task_{session_id}.json"
                     task_file.write_text(json.dumps(task_data), encoding="utf-8")
                     
                     if res.get("is_initial_greeting"):
-                        cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
+                        cache_file = internal_dir / "greeting_cache.json"
                         try:
                             cache_file.write_text(json.dumps(task_data), encoding="utf-8")
                             logger.info("[App] Saved initial greeting to cache.")
@@ -224,8 +225,9 @@ def render_avatar(placeholder, session_id: str):
     with placeholder:
         # 🚀 クラウド上での確実なパス指定
         # スラッシュありの '/static/...' が最も安定します
+        # タイムスタンプ t={time.time()} でキャッシュを強制破棄
         st.components.v1.iframe(
-            src=f"/static/avatar.html?sid={session_id}", 
+            src=f"/static/avatar.html?sid={session_id}&t={time.time()}", 
             height=600,
             scrolling=False
         )
@@ -263,7 +265,12 @@ def main():
         cleanup_stale_tasks()
         st.session_state.last_cleanup = time.time()
 
-    # Static files handled by enableStaticServing = true in config.toml
+    # 🚀 Ghost Cleaning: Streamlitの内部staticフォルダへ素材を強制コピー
+    # これにより MIME type エラー (text/html) を回避し、動画/JSを確実に公開する
+    if "deployment_done" not in st.session_state:
+        internal_path = PathManager.ensure_safe_deployment()
+        st.session_state.deployment_done = True
+        logger.info(f"[App] Deployment to internal static: {internal_path}")
 
     # Auto-refresh every 60 seconds (Heartbeat only)
     st_autorefresh(interval=60000, limit=None, key="auto_refresh")
@@ -275,8 +282,9 @@ def main():
     # Trigger Initial Greeting
     if "greeting_queued" not in st.session_state:
         st.session_state.greeting_queued = True
-        cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
-        task_file = LOCAL_STATIC_DIR / f"task_{sid}.json"
+        internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
+        cache_file = internal_dir / "greeting_cache.json"
+        task_file = internal_dir / f"task_{sid}.json"
         
         # 🚀 キャッシュパスと状態のデバッグログを出力
         logger.info(f"[Cache Debug] Checking cache at: {cache_file}")
@@ -350,7 +358,8 @@ def main():
                 # Queue Cleaning: Clear stale session task immediately
                 try:
                     content = json.dumps({"task_id": "processing"})
-                    task_file = LOCAL_STATIC_DIR / f"task_{sid}.json"
+                    internal_dir = PathManager.get_internal_static() or LOCAL_STATIC_DIR
+                    task_file = internal_dir / f"task_{sid}.json"
                     task_file.write_text(content, encoding="utf-8")
                     logger.info(f"[Input] Cleaned task file for {sid}")
                 except Exception as e:
