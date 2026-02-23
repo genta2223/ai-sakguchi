@@ -5,6 +5,11 @@ Main application: WebM video avatar + Cloud TTS + Gemini RAG + YouTube chat.
 import os
 import streamlit as st
 
+# 🚀 Streamlitがstaticフォルダを正しく認識するためのハック
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent))
+
 # 🚀 どんなスレッドからでも参照できるよう、OSの環境変数にキーを強制セット
 if "GEMINI_API_KEY" in st.secrets:
     os.environ["GOOGLE_API_KEY"] = st.secrets["GEMINI_API_KEY"]
@@ -215,12 +220,12 @@ def poll_results(placeholder, session_id: str):
 # Render Avatar Component
 # ============================================================
 def render_avatar(placeholder, session_id: str):
-    """Render the avatar with explicit security bypass."""
+    """Render the avatar using the most robust pathing for Streamlit Cloud."""
     with placeholder:
-        # 🚀 クラウド上での確実なパス指定
-        # Streamlitのiframeコンポーネントの仕様に基づき、srcURLを絶対パスから相対パスに調整
+        # 🚀 どんな環境でも「直下」の static を見に行かせるための指定
+        # スラッシュなしの 'static/...' が最も安定します
         st.components.v1.iframe(
-            src=f"./static/avatar.html?sid={session_id}", 
+            src=f"static/avatar.html?sid={session_id}", 
             height=600,
             scrolling=False
         )
