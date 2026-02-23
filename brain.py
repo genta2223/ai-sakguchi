@@ -38,8 +38,8 @@ def _configure_genai(api_key: str = None):
         os.environ["GOOGLE_API_KEY"] = api_key
     else:
         try:
-            # 🚀 1. 直接 st.secrets を見に行く (Cloud環境で最も確実)
-            secret_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+            # 🚀 1. FINAL_MASTER_KEY を最優先 (キャッシュ回避の最終手段)
+            secret_key = st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
             if secret_key:
                 genai.configure(api_key=secret_key)
                 os.environ["GOOGLE_API_KEY"] = secret_key
@@ -75,16 +75,16 @@ def _load_faiss_qa_internal(api_key: str = None):
     """Actual loading of FAISS QA index."""
     logger.info("[Brain] Loading FAISS QA index...")
     _configure_genai(api_key)
-    # 🚀 直接 st.secrets から抽出して確実に渡す
-    target_key = api_key or os.environ.get("GOOGLE_API_KEY")
+    
+    # 🚀 環境変数を介さず、新キー名を直接参照（キャッシュ回避の極致）
     try:
-        target_key = target_key or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+        final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
     except:
-        pass
+        final_key = api_key or os.environ.get("GOOGLE_API_KEY") or target_api_key
 
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
-        google_api_key=target_key
+        google_api_key=final_key
     )
     vector = FAISS.load_local(
         str(FAISS_QA_DB_DIR), embeddings, allow_dangerous_deserialization=True
@@ -101,16 +101,16 @@ def _load_faiss_knowledge_internal(api_key: str = None):
     """Actual loading of FAISS Knowledge index."""
     logger.info("[Brain] Loading FAISS Knowledge index...")
     _configure_genai(api_key)
-    # 🚀 直接 st.secrets から抽出して確実に渡す
-    target_key = api_key or os.environ.get("GOOGLE_API_KEY")
+    
+    # 🚀 環境変数を介さず、新キー名を直接参照（キャッシュ回避の極致）
     try:
-        target_key = target_key or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+        final_key = api_key or st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
     except:
-        pass
+        final_key = api_key or os.environ.get("GOOGLE_API_KEY") or target_api_key
 
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001",
-        google_api_key=target_key
+        google_api_key=final_key
     )
     vector = FAISS.load_local(
         str(FAISS_KNOWLEDGE_DB_DIR), embeddings, allow_dangerous_deserialization=True
