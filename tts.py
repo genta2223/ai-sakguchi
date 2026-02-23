@@ -42,16 +42,14 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
         if "GCP_PRIVATE_KEY" in st.secrets and "GCP_CLIENT_EMAIL" in st.secrets:
             raw_key = st.secrets["GCP_PRIVATE_KEY"]
             
-            # 🚀 究極の洗浄ロジック：
-            # 1. まず、実際に改行されている場合は一度繋げて、文字列としての "\\n" に統一する
-            # 2. その後、リテラルな "\\n" (2文字) を本物の改行コード "\n" (1文字) に置換する
-            # 3. 前後の余計なクォーテーションや空白を削除する
-            clean_key = raw_key.replace("\n", "").replace("\\n", "\n").strip()
+            # 🚀 最強の物理洗浄ロジック：
+            # 1. 引用符（シングル/ダブル）が混じっていたら完全に除去
+            # 2. 改行文字のリテラル（\\n や \n）を本物の改行コードに置換
+            # 3. 前後の空白をトリミング
+            clean_key = raw_key.replace("'", "").replace('"', '').replace("\\n", "\n").strip()
             
-            # 念のため、BEGIN/END 以外の場所で変な文字が混じっていないか最終チェック
-            if not clean_key.startswith("-----BEGIN"):
-                # 万が一、シングルクォートが中身に残っていた場合の保険
-                clean_key = clean_key.replace("'", "").replace('"', '')
+            # 4. 万が一、手動で改行して貼り付けられた場合に備え、二重改行を防止しつつ整形
+            clean_key = clean_key.replace("\n\n", "\n")
             
             info = {
                 "type": "service_account",
@@ -61,7 +59,7 @@ def _create_client(creds_json=None, private_key=None, client_email=None):
                 "project_id": st.secrets["GCP_CLIENT_EMAIL"].split("@")[1].split(".")[0]
             }
             credentials = service_account.Credentials.from_service_account_info(info)
-            logger.info("[TTS] Loaded normalized credentials from st.secrets (Cloud environment)")
+            logger.info("[TTS] Loaded optimized credentials from st.secrets (Cloud environment)")
             return texttospeech.TextToSpeechClient(credentials=credentials)
 
         # 2. SECONDARY: Direct JSON file (Local development)
