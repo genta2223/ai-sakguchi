@@ -2,11 +2,15 @@ import logging
 import os
 import time
 import threading
+import json
+import numpy as np
 from queue import Queue, Empty
 
 import streamlit as st
 from brain import generate_response
 from tts import synthesize_speech
+from core_paths import LOCAL_STATIC_DIR
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # ============================================================
 # Configuration & Worker
@@ -18,10 +22,39 @@ IS_CLOUD = os.getenv("STREAMLIT_SERVER_BASE_URL", "") != ""
 MAX_CONCURRENCY = 10 if IS_CLOUD else 3
 SEMAPHORE = threading.Semaphore(MAX_CONCURRENCY)
 
+FAQ_CACHE = []
+FAQ_EMBEDDINGS = None
+EMBEDDER = None
+
+def init_faq_cache(api_key: str):
+    global FAQ_CACHE, FAQ_EMBEDDINGS, EMBEDDER
+    if FAQ_CACHE: return
+    
+    cache_file = LOCAL_STATIC_DIR / "faq_cache.json"
+    if not cache_file.exists():
+        return
+        
+    try:
+        with open(cache_file, "r", encoding="utf-8") as f:
+            FAQ_CACHE = json.load(f)
+            
+        EMBEDDER = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=api_key
+        )
+        questions = [item["question"] for item in FAQ_CACHE]
+        if questions:
+            embeddings = EMBEDDER.embed_documents(questions)
+            FAQ_EMBEDDINGS = np.array(embeddings)
+            logger.info(f"[Worker] Loaded {len(FAQ_CACHE)} FAQs and pre-calculated embeddings.")
+    except Exception as e:
+        logger.error(f"[Worker] Failed to init FAQ cache: {e}")
+
 def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.Event, 
                  google_api_key: str, creds_json: str, private_key: str, client_email: str):
     """Background thread: Process Gemini and TTS with explicitly injected secrets."""
     logger.info("[Worker] Thread started with injected secrets (Bucket Relay).")
+    init_faq_cache(google_api_key)
     while not stop_event.is_set():
         try:
             item = input_queue.get(timeout=1)
@@ -31,15 +64,48 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
         # Use Semaphore to limit simultaneous AI/TTS generation
         with SEMAPHORE:
             try:
-                # 2. AI Response
-                output_queue.put({"type": "progress", "msg": "Thinking..."})
-                reply_text, emotion = generate_response(item.message_text, api_key=google_api_key, use_cache=False)
+                best_match_item = None
+                is_system = getattr(item, "source", None) == "system"
+                is_greeting = getattr(item, "is_initial_greeting", False)
                 
-                # 2. TTS
-                output_queue.put({"type": "progress", "msg": "Synthesizing voice..."})
-                audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
-                                            private_key=private_key, client_email=client_email, 
-                                            use_cache=False)
+                if FAQ_CACHE and FAQ_EMBEDDINGS is not None and EMBEDDER and not is_system and not is_greeting:
+                    try:
+                        query_embed = EMBEDDER.embed_query(item.message_text)
+                        query_vector = np.array(query_embed)
+                        
+                        # Cosine similarity
+                        norms = np.linalg.norm(FAQ_EMBEDDINGS, axis=1) * np.linalg.norm(query_vector)
+                        similarities = np.dot(FAQ_EMBEDDINGS, query_vector) / norms
+                        
+                        best_idx = np.argmax(similarities)
+                        max_sim = similarities[best_idx]
+                        
+                        if max_sim >= 0.75:
+                            logger.info(f"[Worker] FAQ Cache HIT! Similarity: {max_sim:.2f} (Matched: {FAQ_CACHE[best_idx]['question']})")
+                            best_match_item = FAQ_CACHE[best_idx]
+                    except Exception as e:
+                        logger.warning(f"[Worker] Embedding check failed: {e}")
+
+                if best_match_item:
+                    reply_text = best_match_item["response_text"]
+                    emotion = best_match_item.get("emotion", "Neutral")
+                    audio_b64 = best_match_item.get("audio_b64")
+                    
+                    if not audio_b64:
+                        logger.warning("[Worker] FAQ Cache has no audio. Generating...")
+                        audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
+                                                    private_key=private_key, client_email=client_email, 
+                                                    use_cache=False)
+                else:
+                    # 2. AI Response
+                    output_queue.put({"type": "progress", "msg": "Thinking..."})
+                    reply_text, emotion = generate_response(item.message_text, api_key=google_api_key, use_cache=False)
+                    
+                    # 2. TTS
+                    output_queue.put({"type": "progress", "msg": "Synthesizing voice..."})
+                    audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
+                                                private_key=private_key, client_email=client_email, 
+                                                use_cache=False)
                 
                 # 3. Final Result
                 result = {
