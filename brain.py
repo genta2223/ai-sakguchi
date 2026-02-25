@@ -8,9 +8,8 @@ import os
 import re
 from pathlib import Path
 
-# Use the new Google GenAI SDK
-from google import genai
-from google.genai import types
+import google.generativeai as genai
+from google.generativeai import types
 
 import pandas as pd
 import streamlit as st
@@ -34,18 +33,19 @@ DEFAULT_FALLBACK_METADATA = {"row": 1, "image": "unknown.png"}
 target_api_key = os.environ.get("GOOGLE_API_KEY")
 
 
-def get_genai_client(api_key: str = None) -> genai.Client:
-    """Get configuring GenAI client. Prioritize the passed key or FINAL_MASTER_KEY."""
-    key = api_key or st.secrets.get("FINAL_MASTER_KEY")
-    if not key:
-        key = os.environ.get("GOOGLE_API_KEY")
-    return genai.Client(api_key=key)
-
 def _configure_genai(api_key: str = None):
-    # Dummy function for backwards compatibility with FAISS internal calls
+    """Configure Google GenAI. Prioritize the passed key or FINAL_MASTER_KEY."""
+    # 🚀 引数が最優先、次点に FINAL_MASTER_KEY (キャッシュ回避の最終手段)
     key = api_key or st.secrets.get("FINAL_MASTER_KEY")
+    
     if key:
+        genai.configure(api_key=key)
         os.environ["GOOGLE_API_KEY"] = key
+    else:
+        # フォールバック: 既存の環境変数
+        env_key = os.environ.get("GOOGLE_API_KEY")
+        if env_key:
+            genai.configure(api_key=env_key)
 
 
 def check_ng(text: str) -> tuple[bool, str]:
@@ -221,20 +221,17 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
     if ng_judge:
         return reply, "Neutral"
 
-    client = get_genai_client(api_key)
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash",
+        generation_config={"response_mime_type": "application/json"}
+    )
 
     system_prompt = _build_system_prompt(text, api_key=api_key, use_cache=use_cache)
     messages = system_prompt + "\n" + text
 
     try:
         logger.info(f"[Brain] Sending to Gemini ({len(messages)} chars)...")
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=messages,
-            config=types.GenerateContentConfig(
-                tools=[{"google_search": {}}]
-            )
-        )
+        response = model.generate_content(messages)
         json_reply = response.text
         logger.info(f"[Brain] Gemini Response received: {len(json_reply)} chars.")
     except Exception as e:
@@ -244,16 +241,7 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
     emotion = "Neutral"
 
     try:
-        clean_json = json_reply.strip()
-        if clean_json.startswith("```json"):
-            clean_json = clean_json[7:]
-        elif clean_json.startswith("```"):
-            clean_json = clean_json[3:]
-        if clean_json.endswith("```"):
-            clean_json = clean_json[:-3]
-        clean_json = clean_json.strip()
-
-        parsed = json.loads(clean_json)
+        parsed = json.loads(json_reply)
         reply = parsed.get("response", DEFAULT_NG_MESSAGE)
         emotion = parsed.get("primary_emotion", "Neutral")
     except json.JSONDecodeError:
@@ -269,7 +257,7 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
 
 def filter_inappropriate_comments(comments: list[str]) -> list[str]:
     """コメントをフィルタリングする。"""
-    client = get_genai_client()
+    _configure_genai()
 
     prompt = f"""
 今から、与那国町議会議員のYouTube配信に送られてきたコメントを配列で送ります。
@@ -291,13 +279,11 @@ def filter_inappropriate_comments(comments: list[str]) -> list[str]:
 解析したい質問の配列は以下です。
 {comments}
 """
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json"
-        )
+    model = genai.GenerativeModel(
+        "gemini-2.0-flash",
+        generation_config={"response_mime_type": "application/json"},
     )
+    response = model.generate_content(prompt)
     result = response.text
 
     try:

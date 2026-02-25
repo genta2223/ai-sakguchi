@@ -96,16 +96,29 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
                                                     private_key=private_key, client_email=client_email, 
                                                     use_cache=False)
-                else:
-                    # 2. AI Response
-                    output_queue.put({"type": "progress", "msg": "Thinking..."})
-                    reply_text, emotion = generate_response(item.message_text, api_key=google_api_key, use_cache=False)
                     
-                    # 2. TTS
-                    output_queue.put({"type": "progress", "msg": "Synthesizing voice..."})
-                    audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
-                                                private_key=private_key, client_email=client_email, 
-                                                use_cache=False)
+                    result = {
+                        "type": "result",
+                        "audio_b64": audio_b64,
+                        "emotion": emotion,
+                        "response_text": reply_text,
+                        "question": item.message_text if not is_system else "(起動挨拶)",
+                        "author": getattr(item, "author_name", ""),
+                        "is_initial_greeting": getattr(item, "is_initial_greeting", False)
+                    }
+                    output_queue.put(result)
+                    logger.info(f"[Worker] Task complete (FAQ Cache): {reply_text[:20]}...")
+                    continue
+                
+                # 2. AI Response
+                output_queue.put({"type": "progress", "msg": "Thinking..."})
+                reply_text, emotion = generate_response(item.message_text, api_key=google_api_key, use_cache=False)
+                
+                # 2. TTS
+                output_queue.put({"type": "progress", "msg": "Synthesizing voice..."})
+                audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
+                                            private_key=private_key, client_email=client_email, 
+                                            use_cache=False)
                 
                 # 3. Final Result
                 result = {
@@ -113,9 +126,9 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                     "audio_b64": audio_b64,
                     "emotion": emotion,
                     "response_text": reply_text,
-                    "question": item.message_text if item.source != "system" else "(起動挨拶)",
-                    "author": item.author_name,
-                    "is_initial_greeting": item.is_initial_greeting
+                    "question": item.message_text if not is_system else "(起動挨拶)",
+                    "author": getattr(item, "author_name", ""),
+                    "is_initial_greeting": getattr(item, "is_initial_greeting", False)
                 }
                 output_queue.put(result)
                 logger.info(f"[Worker] Task complete: {reply_text[:20]}...")
