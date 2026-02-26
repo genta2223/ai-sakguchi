@@ -11,6 +11,7 @@ port = 8501
 enableCORS = false
 enableXsrfProtection = false
 enableStaticServing = true
+fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false

@@ -92,6 +92,8 @@ if "queue" not in st.session_state:
 
 if "processing" not in st.session_state:
     st.session_state.processing = False
+if "debug_logs" not in st.session_state:
+    st.session_state.debug_logs = []
 if "last_proc_start" not in st.session_state:
     st.session_state.last_proc_start = 0.0
 if "progress_msg" not in st.session_state:
@@ -169,6 +171,11 @@ def poll_results(placeholder, session_id: str):
             if res["type"] == "progress":
                 st.session_state.progress_msg = res["msg"]
                 st.session_state.processing = True
+            elif res["type"] == "debug":
+                if "debug_logs" not in st.session_state:
+                    st.session_state.debug_logs = []
+                st.session_state.debug_logs.append(res["msg"])
+                st.session_state.processing = True
             elif res["type"] == "result":
                 # Robust Task ID: time + hash of text
                 text_hash = hashlib.md5(res["response_text"].encode("utf-8")).hexdigest()[:8]
@@ -210,7 +217,13 @@ def poll_results(placeholder, session_id: str):
                     "author": res["author"],
                     "response": res["response_text"],
                     "emotion": res["emotion"],
+                    "debug_logs": st.session_state.debug_logs.copy() if "debug_logs" in st.session_state else []
                 })
+                
+                # タスク完了時に現在のログをクリア
+                if "debug_logs" in st.session_state:
+                    st.session_state.debug_logs = []
+                    
                 if len(st.session_state.history) > 20:
                     st.session_state.history = st.session_state.history[-20:]
                 
@@ -309,8 +322,11 @@ def main():
         st.session_state.deployment_done = True
         logger.info(f"[App] In-memory mode active (Filesystem reset skipped)")
 
-    # Auto-refresh every 60 seconds (Heartbeat only)
-    st_autorefresh(interval=60000, limit=None, key="auto_refresh")
+    # Auto-refresh: 処理中は高頻度(1秒)、待機中は60秒
+    if st.session_state.processing:
+        st_autorefresh(interval=1000, limit=None, key="auto_refresh_fast")
+    else:
+        st_autorefresh(interval=60000, limit=None, key="auto_refresh_slow")
 
     # Initialize services
     init_youtube_monitor()
@@ -405,6 +421,8 @@ def main():
                     source="direct",
                 )
                 st.session_state.queue.put(item)
+                st.session_state.processing = True
+                st.session_state.debug_logs = [f"📩 質問受付: {user_input[:20]}..."]
                 st.toast("質問を受け付けました。順番に回答します。")
                 st.rerun()
 
@@ -419,6 +437,12 @@ def main():
             st.warning(f"現在、他の町民の方の質問に回答中です。（あと {q_size} 人待ち）")
         
         st.info(f"AI阪口源太が考え中... ({st.session_state.progress_msg})")
+        
+        if st.session_state.get("debug_logs"):
+            with st.expander("🔍 リアルタイム思考プロセス（デバッグ）", expanded=True):
+                for log in st.session_state.debug_logs[-5:]:
+                    st.text(log)
+                    
         if st.button("強制リセット (停止した場合)", key="history_force_reset"):
             st.session_state.processing = False
             st.session_state.current_audio = None
@@ -436,6 +460,10 @@ def main():
                 f"**Q ({entry['author']}):** {entry['question'][:80]}  \n"
                 f"**A [{entry['emotion']}]:** {entry['response']}"
             )
+            if entry.get("debug_logs"):
+                with st.expander("🔍 思考プロセスログ", expanded=False):
+                    for log in entry["debug_logs"]:
+                        st.markdown(f"- `{log}`")
             st.divider()
 
 if __name__ == "__main__":

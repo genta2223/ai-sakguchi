@@ -6,11 +6,18 @@ import json
 import numpy as np
 from queue import Queue, Empty
 
+import re
 import streamlit as st
 from brain import generate_response
 from tts import synthesize_speech
 from core_paths import LOCAL_STATIC_DIR
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+def normalize_text(text: str) -> str:
+    """文字列の正規化：不要な記号や空白を削除（キャッシュの柔軟な照合用）"""
+    if not text: return ""
+    # 全角半角空白、改行、感嘆符などを全て除去
+    return re.sub(r'[…\.\?\!。？！\s\n\r　]+', '', text).strip()
 
 # ============================================================
 # Configuration & Worker
@@ -59,6 +66,11 @@ def init_faq_cache(api_key: str):
             text_data = raw_data.decode("utf-8")
             FAQ_CACHE = json.loads(text_data)
             
+        # 照合用キーを事前に準備
+        for c_item in FAQ_CACHE:
+            if "question" in c_item:
+                c_item["norm_key"] = normalize_text(c_item["question"])
+                
         EMBEDDER = GoogleGenerativeAIEmbeddings(
             model="models/gemini-embedding-001",
             google_api_key=api_key
@@ -94,17 +106,32 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                 
                 if FAQ_CACHE and FAQ_EMBEDDINGS is not None and EMBEDDER and not is_system and not is_greeting:
                     try:
-                        query_embed = EMBEDDER.embed_query(item.message_text)
-                        query_vector = np.array(query_embed)
+                        output_queue.put({"type": "debug", "msg": "🔍 思考プロセス: キャッシュを検索中..."})
+                        norm_query = normalize_text(item.message_text)
+                        best_idx = -1
+                        max_sim = 0.0
                         
-                        # Cosine similarity
-                        norms = np.linalg.norm(FAQ_EMBEDDINGS, axis=1) * np.linalg.norm(query_vector)
-                        similarities = np.dot(FAQ_EMBEDDINGS, query_vector) / norms
+                        # 1. まずは正規化文字列で完全一致チェック
+                        for i, cache_item in enumerate(FAQ_CACHE):
+                            if cache_item.get("norm_key") == norm_query:
+                                logger.info(f"[Cache Debug] ⚡ EXACT MATCH HIT! (正規化キー完全一致)")
+                                output_queue.put({"type": "debug", "msg": f"✅ 思考プロセス: 正規化キー完全一致! (質問: {cache_item['question'][:15]}...)"})
+                                best_idx = i
+                                max_sim = 1.0
+                                break
                         
-                        best_idx = np.argmax(similarities)
-                        max_sim = similarities[best_idx]
-                        
-                        logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
+                        # 2. 完全一致しなかった場合はベクトル検索
+                        if best_idx == -1:
+                            query_embed = EMBEDDER.embed_query(item.message_text)
+                            query_vector = np.array(query_embed)
+                            
+                            norms = np.linalg.norm(FAQ_EMBEDDINGS, axis=1) * np.linalg.norm(query_vector)
+                            similarities = np.dot(FAQ_EMBEDDINGS, query_vector) / norms
+                            
+                            best_idx = int(np.argmax(similarities))
+                            max_sim = float(similarities[best_idx])
+                            logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
+                            output_queue.put({"type": "debug", "msg": f"🧠 思考プロセス: 類似度スコア {max_sim:.4f} (候補: {FAQ_CACHE[best_idx]['question'][:15]}...)"})
                         
                         if max_sim >= 0.75:
                             cached_ans = FAQ_CACHE[best_idx].get("response_text", "")
@@ -117,11 +144,14 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                             else:
                                 logger.info(f"[Worker] FAQ Cache HIT! Similarity: {max_sim:.2f} (Matched: {FAQ_CACHE[best_idx]['question']})")
                                 logger.info("[Cache Debug] ⚡ CACHE HIT! (生成をスキップします)")
+                                output_queue.put({"type": "debug", "msg": "⚡ 思考プロセス: 十分な一致。生成をスキップしキャッシュを返します。"})
                                 best_match_item = FAQ_CACHE[best_idx]
                         else:
                             logger.info("[Cache Debug] 🧠 CACHE MISS. (LLM生成に進みます)")
+                            output_queue.put({"type": "debug", "msg": "📝 思考プロセス: キャッシュミス。LLMによる新規生成を構成中..."})
                     except Exception as e:
                         logger.warning(f"[Worker] Embedding check failed: {e}")
+                        output_queue.put({"type": "debug", "msg": f"⚠️ 思考プロセス: キャッシュ確認エラー ({e})。LLM生成に切り替え。"})
 
                 if best_match_item:
                     reply_text = best_match_item["response_text"]
@@ -150,9 +180,11 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                 # 2. AI Response
                 output_queue.put({"type": "progress", "msg": "Thinking..."})
                 reply_text, emotion = generate_response(item.message_text, api_key=google_api_key, use_cache=False)
+                output_queue.put({"type": "debug", "msg": f"🤖 思考プロセス: LLM回答生成完了 ({len(reply_text)}文字, 感情:{emotion})"})
                 
                 # 2. TTS
                 output_queue.put({"type": "progress", "msg": "Synthesizing voice..."})
+                output_queue.put({"type": "debug", "msg": "🎤 思考プロセス: 音声合成をリクエスト中..."})
                 audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
                                             private_key=private_key, client_email=client_email, 
                                             use_cache=False)
