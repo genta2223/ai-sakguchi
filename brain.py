@@ -184,6 +184,7 @@ def _build_system_prompt(query: str, api_key: str = None, use_cache: bool = True
 * 町民の質問に対して、共感的な回答を心がけてください。
 * 自分の政策を説明する際は、具体例（保育、ITなど）を交えて説明してください。
 * **専門外の質問や最新情報（今日の天気やニュースなど）については、Google検索等の最新知識を活用して、阪口源太の視点で丁寧に回答してください。**
+* リアルタイムな情報（天気やニュースなど）を聞かれた場合は、Google検索ツールを用いて最新の正確な情報を取得し、与那国町の議員として自然に答えること。
 * 与那国町政に関する質問には、提供された「関連情報」や「回答例」を最優先して回答してください。
 * 返答内容で、自身の性格については言及しないで下さい。
 
@@ -231,7 +232,8 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
             model="gemini-2.0-flash",
             contents=messages,
             config=types.GenerateContentConfig(
-                response_mime_type="application/json"
+                response_mime_type="application/json",
+                tools=[{"google_search": {}}]
             )
         )
         json_reply = response.text
