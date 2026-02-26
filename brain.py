@@ -231,15 +231,27 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
 
     client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
 
+    # 動的に検索を使うかどうか判定（検索を使用する場合は JSON 制約を外す）
+    search_keywords = ["天気", "ニュース", "最新", "現在", "今日", "明日", "今週", "今年", "話題", "リアルタイム", "検索"]
+    use_search = any(kw in text for kw in search_keywords)
+
+    if use_search:
+        logger.info("[Brain] Search intent detected. Using Google Search tool without strict JSON schema.")
+        gen_config = types.GenerateContentConfig(
+            tools=[{"google_search": {}}]
+        )
+    else:
+        logger.info("[Brain] RAG/Normal intent detected. Enforcing strict JSON schema.")
+        gen_config = types.GenerateContentConfig(
+            response_mime_type="application/json"
+        )
+
     try:
         logger.info(f"[Brain] Sending to Gemini ({len(messages)} chars)...")
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=messages,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                tools=[{"google_search": {}}]
-            )
+            config=gen_config
         )
         json_reply = response.text
         logger.info(f"[Brain] Gemini Response received: {len(json_reply)} chars.")
@@ -250,12 +262,19 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
     emotion = "Neutral"
 
     try:
-        parsed = json.loads(json_reply)
+        # JSONが含まれているかクリーンアップ
+        clean_json = json_reply.replace('```json', '').replace('```', '').strip()
+        parsed = json.loads(clean_json)
         reply = parsed.get("response", DEFAULT_NG_MESSAGE)
         emotion = parsed.get("primary_emotion", "Neutral")
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON response: {json_reply}")
-        reply = DEFAULT_NG_MESSAGE
+        if use_search:
+            logger.info("[Brain] Search returned non-JSON text. Using raw text as reply.")
+            reply = json_reply.strip()
+            emotion = "Neutral"
+        else:
+            logger.error(f"Failed to parse JSON response: {json_reply}")
+            reply = DEFAULT_NG_MESSAGE
     except Exception as e:
         logger.exception(e)
         reply = DEFAULT_NG_MESSAGE
