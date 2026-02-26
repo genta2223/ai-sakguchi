@@ -233,8 +233,8 @@ def render_avatar(placeholder, session_id: str):
         if html_path.exists():
             html_content = html_path.read_text(encoding="utf-8")
             
-            # 1. 🚀 WebM動画のURLマップを取得 (軽量化したためURL参照でキャッシュを効かせる)
-            video_urls = PathManager.get_video_url_map()
+            # 1. 🚀 WebM動画のBase64エンコードマップを取得 (Streamlit Cloudのパス問題回避のため直埋め込み)
+            video_urls = PathManager.get_video_base64_map()
             
             # 2. 🚀 現在のタスクデータを取得 (TTS音声は引き続きインメモリで即時受け渡し)
             task_data = st.session_state.get("current_avatar_task")

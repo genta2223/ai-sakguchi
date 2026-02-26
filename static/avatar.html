@@ -87,7 +87,7 @@
         const nextIdx = (activeIdx + 1) % 2;
         const currentLayer = layers[activeIdx];
         const nextLayer = layers[nextIdx];
-        const fullNextUrl = `${nextUrl}?v=${buster}`;
+        const fullNextUrl = nextUrl.startsWith('data:') ? nextUrl : `${nextUrl}?v=${buster}`;
 
         // If same video is already playing, just ensure it's playing
         if (nextLayer.src.includes(nextUrl) && nextLayer.classList.contains('active')) {
@@ -183,7 +183,7 @@
         isStarted = true;
         
         // Load initial idle
-        layers[activeIdx].src = `${urls.idle}?v=${buster}`;
+        layers[activeIdx].src = urls.idle && urls.idle.startsWith('data:') ? urls.idle : `${urls.idle}?v=${buster}`;
         layers[activeIdx].classList.add('active');
         layers[activeIdx].play().catch(e => {});
 
@@ -194,7 +194,7 @@
 
     if (isStarted) {
         overlay.style.display = 'none';
-        layers[activeIdx].src = `${urls.idle}?v=${buster}`;
+        layers[activeIdx].src = urls.idle && urls.idle.startsWith('data:') ? urls.idle : `${urls.idle}?v=${buster}`;
         layers[activeIdx].classList.add('active');
         layers[activeIdx].play().catch(e => {});
         if (task) processTask(task);
