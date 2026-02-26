@@ -47,6 +47,7 @@ def init_faq_cache(api_key: str):
             embeddings = EMBEDDER.embed_documents(questions)
             FAQ_EMBEDDINGS = np.array(embeddings)
             logger.info(f"[Worker] Loaded {len(FAQ_CACHE)} FAQs and pre-calculated embeddings.")
+            logger.info(f"[Cache Debug] FAQキャッシュを{len(FAQ_CACHE)}件ロードし、ベクトル化を完了しました。")
     except Exception as e:
         logger.error(f"[Worker] Failed to init FAQ cache: {e}")
 
@@ -80,9 +81,14 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         best_idx = np.argmax(similarities)
                         max_sim = similarities[best_idx]
                         
+                        logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
+                        
                         if max_sim >= 0.75:
                             logger.info(f"[Worker] FAQ Cache HIT! Similarity: {max_sim:.2f} (Matched: {FAQ_CACHE[best_idx]['question']})")
+                            logger.info("[Cache Debug] ⚡ CACHE HIT! (生成をスキップします)")
                             best_match_item = FAQ_CACHE[best_idx]
+                        else:
+                            logger.info("[Cache Debug] 🧠 CACHE MISS. (LLM生成に進みます)")
                     except Exception as e:
                         logger.warning(f"[Worker] Embedding check failed: {e}")
 
