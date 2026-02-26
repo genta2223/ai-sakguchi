@@ -356,6 +356,26 @@ def main():
     # Mark as started so subsequent reruns (heartbeat or full) include the flag
     st.session_state.started = True
 
+    def submit_chat():
+        user_input = st.session_state.get("user_input_field", "").strip()
+        if user_input:
+            logger.info(f"[Input] User submitted: {user_input[:20]}")
+            
+            # 🚀 考え中フラグを即座にセット (JS側で talking_wait.webm を再生させる)
+            st.session_state.current_avatar_task = {"task_id": "waiting", "audio_b64": None}
+            logger.info(f"[Input] Set 'waiting' state for avatar.")
+
+            item = ChatItem(
+                message_text=user_input,
+                author_name="町民",
+                source="direct",
+            )
+            st.session_state.queue.put(item)
+            st.toast("質問を受け付けました。順番に回答します。")
+            
+            # 入力欄をクリア
+            st.session_state.user_input_field = ""
+
     # --- Input Area (Fragmented) ---
     @st.fragment
     def chat_area():
@@ -363,29 +383,15 @@ def main():
             st.markdown("---")
             cols = st.columns([6, 1])
             with cols[0]:
-                user_input = st.text_input(
+                st.text_input(
                     "💬 質問を入力",
                     placeholder="与那国島の未来について教えてください...",
                     key="user_input_field", 
                     label_visibility="collapsed",
+                    on_change=submit_chat
                 )
             with cols[1]:
-                send_pressed = st.button("送信", type="primary", use_container_width=True)
-
-            if send_pressed and user_input:
-                logger.info(f"[Input] User submitted: {user_input[:20]}")
-                
-                # 🚀 考え中フラグを即座にセット (JS側で talking_wait.webm を再生させる)
-                st.session_state.current_avatar_task = {"task_id": "waiting", "audio_b64": None}
-                logger.info(f"[Input] Set 'waiting' state for avatar.")
-
-                item = ChatItem(
-                    message_text=user_input,
-                    author_name="町民",
-                    source="direct",
-                )
-                st.session_state.queue.put(item)
-                st.toast("質問を受け付けました。順番に回答します。")
+                st.button("送信", type="primary", use_container_width=True, on_click=submit_chat)
 
     chat_area()
 
