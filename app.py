@@ -202,10 +202,11 @@ def poll_results(placeholder, session_id: str):
                         
                         # 🚀 物理ファイルにも永続保存 (再起動後の爆速起動のため)
                         try:
-                            cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
-                            with open(cache_file, "w", encoding="utf-8") as f:
-                                json.dump(task_data, f, ensure_ascii=False, indent=2)
-                            logger.info(f"[Cache] Saved initial greeting to physical file: {cache_file.name}")
+                            if task_data:
+                                cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
+                                with open(cache_file, "w", encoding="utf-8") as f:
+                                    json.dump(task_data, f, ensure_ascii=False, indent=2)
+                                logger.info(f"[Cache] Saved initial greeting to physical file: {cache_file.name}")
                         except Exception as e:
                             logger.warning(f"[Cache] Failed to save to physical file: {e}")
                     else:
@@ -348,8 +349,12 @@ def main():
                     with open(cache_file, "rb") as f:
                         raw_data = f.read()
                     
-                    if b'\xff' in raw_data[:4] or b'\xfe' in raw_data[:4] or b'\xef\xbb\xbf' in raw_data[:4]:
-                        logger.error(f"[Cache] ⚠️ 外部からの汚染 (0xff/BOM等の混入) を検出しました: {cache_file.name}。純粋なUTF-8で再定義します。")
+                    has_bom_utf8 = raw_data.startswith(b'\xef\xbb\xbf')
+                    has_bom_utf16le = raw_data.startswith(b'\xff\xfe')
+                    has_bom_utf16be = raw_data.startswith(b'\xfe\xff')
+                    
+                    if has_bom_utf8 or has_bom_utf16le or has_bom_utf16be:
+                        logger.error(f"[Cache] ⚠️ 外部からの汚染 (BOM混入) を検出しました: {cache_file.name}。BOMを除去して救出します。")
                         try:
                             text_data = raw_data.decode("utf-8-sig")
                         except UnicodeDecodeError:
@@ -359,10 +364,13 @@ def main():
                                 text_data = raw_data.decode("utf-8", errors="ignore")
                         cached_data = json.loads(text_data)
                         
-                        # Re-save immediately as pure UTF-8
-                        with open(cache_file, "w", encoding="utf-8") as f:
-                            json.dump(cached_data, f, ensure_ascii=False, indent=2)
-                        logger.info(f"[Cache] 🔧 キャッシュファイルを純粋なUTF-8で上書き保存しました。")
+                        # Re-save immediately as pure UTF-8 only if not empty
+                        if cached_data:
+                            with open(cache_file, "w", encoding="utf-8") as f:
+                                json.dump(cached_data, f, ensure_ascii=False, indent=2)
+                            logger.info(f"[Cache] 🔧 キャッシュファイルからBOMを除去し、中身を維持したまま純粋なUTF-8で上書き保存(救出)しました。")
+                        else:
+                            logger.error(f"[Cache] ⚠️ 救出したデータが空のため、破壊防止としてファイル上書きをスキップしました。")
                     else:
                         text_data = raw_data.decode("utf-8")
                         cached_data = json.loads(text_data)

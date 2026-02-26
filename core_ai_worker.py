@@ -45,9 +45,13 @@ def init_faq_cache(api_key: str):
         with open(cache_file, "rb") as f:
             raw_data = f.read()
             
-        # Check for BOM or 0xff contamination
-        if b'\xff' in raw_data[:4] or b'\xfe' in raw_data[:4] or b'\xef\xbb\xbf' in raw_data[:4]:
-            logger.error(f"[Worker] ⚠️ 外部からの汚染 (0xff/BOM等の混入) を検出しました: {cache_file.name}。純粋なUTF-8で再定義します。")
+        # Check for BOM contamination
+        has_bom_utf8 = raw_data.startswith(b'\xef\xbb\xbf')
+        has_bom_utf16le = raw_data.startswith(b'\xff\xfe')
+        has_bom_utf16be = raw_data.startswith(b'\xfe\xff')
+        
+        if has_bom_utf8 or has_bom_utf16le or has_bom_utf16be:
+            logger.error(f"[Worker] ⚠️ 外部からの汚染 (BOM混入) を検出しました: {cache_file.name}。BOMを除去して救出します。")
             try:
                 text_data = raw_data.decode("utf-8-sig")
             except UnicodeDecodeError:
@@ -58,10 +62,13 @@ def init_faq_cache(api_key: str):
             
             FAQ_CACHE = json.loads(text_data)
             
-            # Re-save immediately as pure UTF-8
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(FAQ_CACHE, f, ensure_ascii=False, indent=2)
-            logger.info(f"[Worker] 🔧 キャッシュファイルを純粋なUTF-8で上書き保存しました。")
+            # Re-save immediately as pure UTF-8 only if not empty
+            if FAQ_CACHE:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(FAQ_CACHE, f, ensure_ascii=False, indent=2)
+                logger.info(f"[Worker] 🔧 キャッシュファイルの中身を維持したまま、純粋なUTF-8で上書き保存(救出)しました。")
+            else:
+                logger.error(f"[Worker] ⚠️ 救出したデータが空のため、破壊防止としてファイル上書きをスキップしました。")
         else:
             text_data = raw_data.decode("utf-8")
             FAQ_CACHE = json.loads(text_data)
@@ -199,8 +206,9 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         FAQ_CACHE[cache_to_repair]["emotion"] = emotion
                         FAQ_CACHE[cache_to_repair]["audio_b64"] = audio_b64
                         try:
-                            with open(LOCAL_STATIC_DIR / "faq_cache.json", "w", encoding="utf-8") as f:
-                                json.dump(FAQ_CACHE, f, ensure_ascii=False, indent=2)
+                            if FAQ_CACHE:
+                                with open(LOCAL_STATIC_DIR / "faq_cache.json", "w", encoding="utf-8") as f:
+                                    json.dump(FAQ_CACHE, f, ensure_ascii=False, indent=2)
                         except Exception as e:
                             logger.error(f"Failed to write repaired cache back to disk: {e}")
 

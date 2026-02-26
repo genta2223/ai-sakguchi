@@ -108,10 +108,12 @@ def pre_generate_answers(questions):
         faq_cache.append(task_data)
         
     cache_file = LOCAL_STATIC_DIR / "faq_cache.json"
-    with open(cache_file, "w", encoding="utf-8") as f:
-        json.dump(faq_cache, f, ensure_ascii=False, indent=2)
-    
-    logger.info(f"Saved FAQ cache to {cache_file.name}")
+    if faq_cache:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(faq_cache, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved FAQ cache to {cache_file.name}")
+    else:
+        logger.error(f"⚠️ 生成データが空のため、破壊防止としてファイル上書きをスキップしました。")
 
 if __name__ == "__main__":
     logger.info("Starting FAQ extraction and answer generation...")
