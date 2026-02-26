@@ -240,24 +240,21 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
     # 検索は「政策・町政関連ではない」かつ「検索キーワードが含まれる」場合の最後の手段とする
     use_search = has_search_kw and not is_policy_query
 
+    kwargs = {
+        "model": "gemini-2.0-flash",
+        "contents": messages
+    }
+
     if use_search:
         logger.info("[Brain] Search intent detected. Using Google Search tool without strict JSON schema.")
-        gen_config = types.GenerateContentConfig(
-            tools=[{"google_search": {}}]
-        )
+        kwargs["config"] = {"tools": [{"google_search": {}}]}
     else:
         logger.info("[Brain] RAG/Normal intent detected. Enforcing strict JSON schema.")
-        gen_config = types.GenerateContentConfig(
-            response_mime_type="application/json"
-        )
+        kwargs["config"] = {"response_mime_type": "application/json"}
 
     try:
         logger.info(f"[Brain] Sending to Gemini ({len(messages)} chars)...")
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=messages,
-            config=gen_config
-        )
+        response = client.models.generate_content(**kwargs)
         json_reply = response.text
         logger.info(f"[Brain] Gemini Response received: {len(json_reply)} chars.")
     except Exception as e:
