@@ -39,7 +39,7 @@ def init_faq_cache(api_key: str):
             FAQ_CACHE = json.load(f)
             
         EMBEDDER = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
+            model="models/gemini-embedding-001",
             google_api_key=api_key
         )
         questions = [item["question"] for item in FAQ_CACHE]

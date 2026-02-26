@@ -8,8 +8,8 @@ import os
 import re
 from pathlib import Path
 
-import google.generativeai as genai
-from google.generativeai import types
+from google import genai
+from google.genai import types
 
 import pandas as pd
 import streamlit as st
@@ -39,13 +39,12 @@ def _configure_genai(api_key: str = None):
     key = api_key or st.secrets.get("FINAL_MASTER_KEY")
     
     if key:
-        genai.configure(api_key=key)
         os.environ["GOOGLE_API_KEY"] = key
     else:
         # フォールバック: 既存の環境変数
         env_key = os.environ.get("GOOGLE_API_KEY")
         if env_key:
-            genai.configure(api_key=env_key)
+            pass
 
 
 def check_ng(text: str) -> tuple[bool, str]:
@@ -221,17 +220,20 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
     if ng_judge:
         return reply, "Neutral"
 
-    model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
-        generation_config={"response_mime_type": "application/json"}
-    )
-
     system_prompt = _build_system_prompt(text, api_key=api_key, use_cache=use_cache)
     messages = system_prompt + "\n" + text
 
+    client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
+
     try:
         logger.info(f"[Brain] Sending to Gemini ({len(messages)} chars)...")
-        response = model.generate_content(messages)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=messages,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
         json_reply = response.text
         logger.info(f"[Brain] Gemini Response received: {len(json_reply)} chars.")
     except Exception as e:
@@ -279,11 +281,14 @@ def filter_inappropriate_comments(comments: list[str]) -> list[str]:
 解析したい質問の配列は以下です。
 {comments}
 """
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash",
-        generation_config={"response_mime_type": "application/json"},
+    client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json"
+        )
     )
-    response = model.generate_content(prompt)
     result = response.text
 
     try:
