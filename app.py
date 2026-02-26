@@ -356,34 +356,6 @@ def main():
     # Mark as started so subsequent reruns (heartbeat or full) include the flag
     st.session_state.started = True
 
-    # --- Sidebar: History and Debug Info ---
-    with st.sidebar:
-        st.header("📜 応答履歴とステータス")
-        if st.session_state.processing:
-            q_size = st.session_state.queue.qsize()
-            if q_size > 0:
-                st.warning(f"現在、他の町民の方の質問に回答中です。（あと {q_size} 人待ち）")
-            
-            st.info(f"AI阪口源太が考え中... ({st.session_state.progress_msg})")
-            if st.button("強制リセット (停止した場合)", key="force_reset"):
-                st.session_state.processing = False
-                st.session_state.current_audio = None
-                st.session_state.progress_msg = "Reset"
-                st.session_state.started = False
-                st.session_state.queue = Queue()
-                st.session_state.output_queue = Queue()
-                st.toast("処理をリセットしました")
-                st.components.v1.html("<script>localStorage.clear(); window.parent.location.reload();</script>", height=0)
-                st.rerun()
-                
-        if st.session_state.history:
-            for entry in reversed(st.session_state.history):
-                st.markdown(
-                    f"**Q ({entry['author']}):** {entry['question'][:80]}  \n"
-                    f"**A [{entry['emotion']}]:** {entry['response']}"
-                )
-                st.divider()
-
     # --- Input Area (Fragmented) ---
     @st.fragment
     def chat_area():
@@ -414,8 +386,36 @@ def main():
                 )
                 st.session_state.queue.put(item)
                 st.toast("質問を受け付けました。順番に回答します。")
-                
+
     chat_area()
+
+    # --- Status and History Area (Bottom) ---
+    st.markdown("---")
+    st.header("📜 応答履歴とステータス")
+    if st.session_state.processing:
+        q_size = st.session_state.queue.qsize()
+        if q_size > 0:
+            st.warning(f"現在、他の町民の方の質問に回答中です。（あと {q_size} 人待ち）")
+        
+        st.info(f"AI阪口源太が考え中... ({st.session_state.progress_msg})")
+        if st.button("強制リセット (停止した場合)", key="history_force_reset"):
+            st.session_state.processing = False
+            st.session_state.current_audio = None
+            st.session_state.progress_msg = "Reset"
+            st.session_state.started = False
+            st.session_state.queue = Queue()
+            st.session_state.output_queue = Queue()
+            st.toast("処理をリセットしました")
+            st.components.v1.html("<script>localStorage.clear(); window.parent.location.reload();</script>", height=0)
+            st.rerun()
+            
+    if st.session_state.history:
+        for entry in reversed(st.session_state.history):
+            st.markdown(
+                f"**Q ({entry['author']}):** {entry['question'][:80]}  \n"
+                f"**A [{entry['emotion']}]:** {entry['response']}"
+            )
+            st.divider()
 
 if __name__ == "__main__":
     main()
