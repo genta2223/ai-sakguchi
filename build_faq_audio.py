@@ -29,8 +29,29 @@ def build_faq_audio():
         logger.error(f"Cannot find {cache_file}")
         return
 
-    with open(cache_file, "r", encoding="utf-8") as f:
-        faq_cache = json.load(f)
+    with open(cache_file, "rb") as f:
+        raw_data = f.read()
+
+    # Check for BOM or 0xff contamination
+    if b'\xff' in raw_data[:4] or b'\xfe' in raw_data[:4] or b'\xef\xbb\xbf' in raw_data[:4]:
+        logger.error(f"⚠️ 外部からの汚染 (0xff/BOM等の混入) を検出しました: {cache_file.name}。純粋なUTF-8で再定義します。")
+        try:
+            text_data = raw_data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                text_data = raw_data.decode("utf-16")
+            except UnicodeDecodeError:
+                text_data = raw_data.decode("utf-8", errors="ignore")
+        
+        faq_cache = json.loads(text_data)
+        
+        # Re-save immediately as pure UTF-8
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(faq_cache, f, ensure_ascii=False, indent=2)
+        logger.info(f"🔧 キャッシュファイルを純粋なUTF-8で上書き保存しました。")
+    else:
+        text_data = raw_data.decode("utf-8")
+        faq_cache = json.loads(text_data)
 
     logger.info(f"Loaded {len(faq_cache)} items from faq_cache.json.")
 

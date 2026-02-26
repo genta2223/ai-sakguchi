@@ -35,8 +35,29 @@ def init_faq_cache(api_key: str):
         return
         
     try:
-        with open(cache_file, "r", encoding="utf-8") as f:
-            FAQ_CACHE = json.load(f)
+        with open(cache_file, "rb") as f:
+            raw_data = f.read()
+            
+        # Check for BOM or 0xff contamination
+        if b'\xff' in raw_data[:4] or b'\xfe' in raw_data[:4] or b'\xef\xbb\xbf' in raw_data[:4]:
+            logger.error(f"[Worker] ⚠️ 外部からの汚染 (0xff/BOM等の混入) を検出しました: {cache_file.name}。純粋なUTF-8で再定義します。")
+            try:
+                text_data = raw_data.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                try:
+                    text_data = raw_data.decode("utf-16")
+                except UnicodeDecodeError:
+                    text_data = raw_data.decode("utf-8", errors="ignore")
+            
+            FAQ_CACHE = json.loads(text_data)
+            
+            # Re-save immediately as pure UTF-8
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(FAQ_CACHE, f, ensure_ascii=False, indent=2)
+            logger.info(f"[Worker] 🔧 キャッシュファイルを純粋なUTF-8で上書き保存しました。")
+        else:
+            text_data = raw_data.decode("utf-8")
+            FAQ_CACHE = json.loads(text_data)
             
         EMBEDDER = GoogleGenerativeAIEmbeddings(
             model="models/gemini-embedding-001",

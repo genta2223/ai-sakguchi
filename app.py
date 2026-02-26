@@ -324,8 +324,28 @@ def main():
             cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
             if cache_file.exists():
                 try:
-                    with open(cache_file, "r", encoding="utf-8") as f:
-                        cached_data = json.load(f)
+                    with open(cache_file, "rb") as f:
+                        raw_data = f.read()
+                    
+                    if b'\xff' in raw_data[:4] or b'\xfe' in raw_data[:4] or b'\xef\xbb\xbf' in raw_data[:4]:
+                        logger.error(f"[Cache] ⚠️ 外部からの汚染 (0xff/BOM等の混入) を検出しました: {cache_file.name}。純粋なUTF-8で再定義します。")
+                        try:
+                            text_data = raw_data.decode("utf-8-sig")
+                        except UnicodeDecodeError:
+                            try:
+                                text_data = raw_data.decode("utf-16")
+                            except UnicodeDecodeError:
+                                text_data = raw_data.decode("utf-8", errors="ignore")
+                        cached_data = json.loads(text_data)
+                        
+                        # Re-save immediately as pure UTF-8
+                        with open(cache_file, "w", encoding="utf-8") as f:
+                            json.dump(cached_data, f, ensure_ascii=False, indent=2)
+                        logger.info(f"[Cache] 🔧 キャッシュファイルを純粋なUTF-8で上書き保存しました。")
+                    else:
+                        text_data = raw_data.decode("utf-8")
+                        cached_data = json.loads(text_data)
+
                     st.session_state.greeting_task_cache = cached_data
                     st.session_state.current_avatar_task = cached_data
                     logger.info(f"[Cache] DISK HIT! Loaded greeting from {cache_file.name}")
