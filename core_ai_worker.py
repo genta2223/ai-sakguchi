@@ -69,6 +69,8 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                 is_system = getattr(item, "source", None) == "system"
                 is_greeting = getattr(item, "is_initial_greeting", False)
                 
+                cache_to_repair = None
+                
                 if FAQ_CACHE and FAQ_EMBEDDINGS is not None and EMBEDDER and not is_system and not is_greeting:
                     try:
                         query_embed = EMBEDDER.embed_query(item.message_text)
@@ -84,9 +86,17 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
                         
                         if max_sim >= 0.75:
-                            logger.info(f"[Worker] FAQ Cache HIT! Similarity: {max_sim:.2f} (Matched: {FAQ_CACHE[best_idx]['question']})")
-                            logger.info("[Cache Debug] ⚡ CACHE HIT! (生成をスキップします)")
-                            best_match_item = FAQ_CACHE[best_idx]
+                            cached_ans = FAQ_CACHE[best_idx].get("response_text", "")
+                            rejection_phrases = ["答えられません", "学習中", "エラー", "申し訳ありません"]
+                            is_rejected = any(rp in cached_ans for rp in rejection_phrases)
+                            
+                            if is_rejected:
+                                logger.info(f"[Worker] ⚠️ Cache contains rejection phrase. Invalidating and flagging for auto-repair. (Idx: {best_idx})")
+                                cache_to_repair = best_idx
+                            else:
+                                logger.info(f"[Worker] FAQ Cache HIT! Similarity: {max_sim:.2f} (Matched: {FAQ_CACHE[best_idx]['question']})")
+                                logger.info("[Cache Debug] ⚡ CACHE HIT! (生成をスキップします)")
+                                best_match_item = FAQ_CACHE[best_idx]
                         else:
                             logger.info("[Cache Debug] 🧠 CACHE MISS. (LLM生成に進みます)")
                     except Exception as e:
@@ -126,7 +136,22 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                                             private_key=private_key, client_email=client_email, 
                                             use_cache=False)
                 
-                # 3. Final Result
+                # 3. Auto-Repair Cache if needed
+                if cache_to_repair is not None:
+                    # Verify new response is good
+                    rejection_phrases = ["答えられません", "学習中", "エラー", "申し訳ありません"]
+                    if not any(rp in reply_text for rp in rejection_phrases):
+                        logger.info(f"🔧 [Worker] Auto-repairing cache index {cache_to_repair} with new valid answer.")
+                        FAQ_CACHE[cache_to_repair]["response_text"] = reply_text
+                        FAQ_CACHE[cache_to_repair]["emotion"] = emotion
+                        FAQ_CACHE[cache_to_repair]["audio_b64"] = audio_b64
+                        try:
+                            with open(LOCAL_STATIC_DIR / "faq_cache.json", "w", encoding="utf-8") as f:
+                                json.dump(FAQ_CACHE, f, ensure_ascii=False, indent=2)
+                        except Exception as e:
+                            logger.error(f"Failed to write repaired cache back to disk: {e}")
+
+                # 4. Final Result
                 result = {
                     "type": "result",
                     "audio_b64": audio_b64,
