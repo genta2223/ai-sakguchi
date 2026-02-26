@@ -183,9 +183,8 @@ def _build_system_prompt(query: str, api_key: str = None, use_cache: bool = True
 * 道徳的・倫理的に適切な回答を心がけてください。
 * 町民の質問に対して、共感的な回答を心がけてください。
 * 自分の政策を説明する際は、具体例（保育、ITなど）を交えて説明してください。
-* **専門外の質問や最新情報（今日の天気やニュースなど）については、Google検索等の最新知識を活用して、阪口源太の視点で丁寧に回答してください。**
-* リアルタイムな情報（天気やニュースなど）を聞かれた場合は、Google検索ツールを用いて最新の正確な情報を取得し、与那国町の議員として自然に答えること。
-* 与那国町政に関する質問には、提供された「関連情報」や「回答例」を最優先して回答してください。
+* 政策や与那国町に関する質問（与那国馬、医療、教育、防衛、産業など）については、たとえ「最新」と聞かれても、提供された「関連情報」や「回答例」の知識を【最優先】して回答してください。決して安易に一般論や外部情報の検索結果で自身の政策を上書きしないでください。
+* 専門外の質問やリアルタイムな情報（今日の天気やニュースなど）が不可欠な場合に限り、外部情報を活用して回答してください。
 * 返答内容で、自身の性格については言及しないで下さい。
 
 # 【絶対ルール：プライバシーの保護】
@@ -231,9 +230,15 @@ def generate_response(text: str, api_key: str = None, use_cache: bool = True) ->
 
     client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
 
-    # 動的に検索を使うかどうか判定（検索を使用する場合は JSON 制約を外す）
+    # 動的に検索を使うかどうか判定
+    policy_keywords = ["与那国馬", "馬", "医療", "病院", "教育", "学校", "保育", "子育て", "税", "防衛", "自衛隊", "町政", "議員", "選挙", "観光", "交通", "フェリー", "空港", "産業", "農業", "漁業", "IT", "DX", "移住", "人口"]
     search_keywords = ["天気", "ニュース", "最新", "現在", "今日", "明日", "今週", "今年", "話題", "リアルタイム", "検索"]
-    use_search = any(kw in text for kw in search_keywords)
+
+    is_policy_query = any(kw in text for kw in policy_keywords)
+    has_search_kw = any(kw in text for kw in search_keywords)
+
+    # 検索は「政策・町政関連ではない」かつ「検索キーワードが含まれる」場合の最後の手段とする
+    use_search = has_search_kw and not is_policy_query
 
     if use_search:
         logger.info("[Brain] Search intent detected. Using Google Search tool without strict JSON schema.")
