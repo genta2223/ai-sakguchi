@@ -37,14 +37,34 @@ def init_faq_cache(api_key: str):
     global FAQ_CACHE, FAQ_EMBEDDINGS, EMBEDDER
     if FAQ_CACHE: return
     
+    FAQ_CACHE = []
+    
+    # 1. 第1層（聖域）マスターキャッシュの読み込み（読み取り専用）
     cache_file = LOCAL_STATIC_DIR / "faq_cache.json"
-    if not cache_file.exists():
-        return
-        
-    try:
-        with open(cache_file, "r", encoding="utf-8") as f:
-            FAQ_CACHE = json.load(f)
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                master_cache = json.load(f)
+                for item in master_cache:
+                    item["source"] = "master" # マークづけ
+                FAQ_CACHE.extend(master_cache)
+        except Exception as e:
+            logger.error(f"[Worker] Failed to load master cache: {e}")
+
+    # 2. 第2層（野良質問拡張）エキストラキャッシュの読み込み
+    extra_cache_file = LOCAL_STATIC_DIR / "extra_cache.json"
+    if extra_cache_file.exists():
+        try:
+            with open(extra_cache_file, "r", encoding="utf-8") as f:
+                extra_cache = json.load(f)
+                for item in extra_cache:
+                    item["source"] = "extra"
+                FAQ_CACHE.extend(extra_cache)
+            logger.info(f"[Worker] Loaded {len(extra_cache)} extra FAQs.")
+        except Exception as e:
+            logger.error(f"[Worker] Failed to load extra cache: {e}")
             
+    try:
         # 照合用キーを事前に準備
         for c_item in FAQ_CACHE:
             if "question" in c_item:
@@ -58,10 +78,10 @@ def init_faq_cache(api_key: str):
         if questions:
             embeddings = EMBEDDER.embed_documents(questions)
             FAQ_EMBEDDINGS = np.array(embeddings)
-            logger.info(f"[Worker] Loaded {len(FAQ_CACHE)} FAQs and pre-calculated embeddings.")
-            logger.info(f"[Cache Debug] FAQキャッシュを{len(FAQ_CACHE)}件ロードし、ベクトル化を完了しました。")
+            logger.info(f"[Worker] Loaded total {len(FAQ_CACHE)} FAQs and pre-calculated embeddings.")
+            logger.info(f"[Cache Debug] FAQキャッシュを計{len(FAQ_CACHE)}件ロードし、ベクトル化を完了しました。")
     except Exception as e:
-        logger.error(f"[Worker] Failed to init FAQ cache: {e}")
+        logger.error(f"[Worker] Failed to init FAQ embeddings: {e}")
 
 def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.Event, 
                  google_api_key: str, creds_json: str, private_key: str, client_email: str):
@@ -175,19 +195,21 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                     is_valid_answer = False
 
                 if not is_system and not is_greeting and is_valid_answer:
-                    if cache_to_repair is not None:
-                        logger.info(f"🔧 [Worker] Auto-repairing cache index {cache_to_repair} with new valid answer.")
+                    if cache_to_repair is not None and FAQ_CACHE[cache_to_repair].get("source") != "master":
+                        # レガシー(マスター)以外なら修復
+                        logger.info(f"🔧 [Worker] Auto-repairing EXTRA cache index {cache_to_repair} with new valid answer.")
                         FAQ_CACHE[cache_to_repair]["response_text"] = reply_text
                         FAQ_CACHE[cache_to_repair]["emotion"] = emotion
                         FAQ_CACHE[cache_to_repair]["audio_b64"] = audio_b64
-                    else:
-                        logger.info(f"➕ [Worker] Appending new wild question to cache.")
+                    elif cache_to_repair is None:
+                        logger.info(f"➕ [Worker] Appending new wild question to extra cache.")
                         new_cache_entry = {
                             "question": item.message_text,
                             "response_text": reply_text,
                             "emotion": emotion,
                             "audio_b64": audio_b64,
-                            "norm_key": normalize_text(item.message_text)
+                            "norm_key": normalize_text(item.message_text),
+                            "source": "extra"
                         }
                         FAQ_CACHE.append(new_cache_entry)
                         try:
@@ -200,18 +222,26 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         except Exception as e:
                             logger.error(f"Failed to update embeddings dynamically: {e}")
                     
-                    try:
-                        # Remove 'norm_key' before saving to keep it clean
-                        save_data = []
-                        for c in FAQ_CACHE:
-                            c_copy = c.copy()
-                            c_copy.pop("norm_key", None)
-                            save_data.append(c_copy)
-                        with open(LOCAL_STATIC_DIR / "faq_cache.json", "w", encoding="utf-8") as f:
-                            json.dump(save_data, f, ensure_ascii=False, indent=2)
-                        logger.info(f"💾 [Worker] Safely saved faq_cache.json. Total entries: {len(FAQ_CACHE)}")
-                    except Exception as e:
-                        logger.error(f"Failed to write cache back to disk: {e}")
+                    # 🚀 非同期で書き込みを行い、応答プロセスをブロックしない
+                    def async_write_extra_cache():
+                        try:
+                            # マスター以外のキャッシュを抽出 (source == "extra")
+                            save_data = []
+                            for c in FAQ_CACHE:
+                                if c.get("source") == "extra":
+                                    c_copy = c.copy()
+                                    c_copy.pop("norm_key", None)
+                                    # マークづけは永続化する必要ないかもだが、読み込み時につけるので残してよし
+                                    save_data.append(c_copy)
+                            
+                            extra_cache_file = LOCAL_STATIC_DIR / "extra_cache.json"
+                            with open(extra_cache_file, "w", encoding="utf-8") as f:
+                                json.dump(save_data, f, ensure_ascii=False, indent=2)
+                            logger.info(f"💾 [Worker] Safely saved extra_cache.json async. Extra total: {len(save_data)}")
+                        except Exception as e:
+                            logger.error(f"Failed to write extra cache back to disk: {e}")
+                            
+                    threading.Thread(target=async_write_extra_cache, daemon=True).start()
 
                 # 4. Final Result
                 result = {

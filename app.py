@@ -199,17 +199,10 @@ def poll_results(placeholder, session_id: str):
                     if response_text and not response_text.startswith("AI/TTS Error:"):
                         # Cache greeting task data in session state for other users/sessions if needed,
                         st.session_state.greeting_task_cache = task_data
-                        
-                        # 🚀 物理ファイルにも永続保存 (再起動後の爆速起動のため)
-                        try:
-                            cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
-                            with open(cache_file, "w", encoding="utf-8") as f:
-                                json.dump(task_data, f, ensure_ascii=False, indent=2)
-                            logger.info(f"[Cache] Saved initial greeting to physical file: {cache_file.name}")
-                        except Exception as e:
-                            logger.warning(f"[Cache] Failed to save to physical file: {e}")
+                        # 🚀 第1層(聖域)マスターキャッシュは完全に読み取り専用のため、書き込みを行わない
+                        logger.info(f"[Cache] Primary greeting cache is strictly read-only. Bypassing physical write.")
                     else:
-                        logger.error(f"[Cache] ⚠️ 警告: 不完全な自己紹介データが生成されたため、キャッシュの上書きをブロックしました。")
+                        logger.error(f"[Cache] ⚠️ 警告: 不完全な自己紹介データが生成されたためブロックしました。")
 
                 # Still update history for UI
                 st.session_state.history.append({
