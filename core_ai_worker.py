@@ -70,25 +70,10 @@ def init_faq_cache(api_key: str):
             if "question" in c_item:
                 c_item["norm_key"] = normalize_text(c_item["question"])
                 
-        EMBEDDER = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-001",
-            google_api_key=api_key
-        )
-        questions = [item["question"] for item in FAQ_CACHE]
-        if questions:
-            embeddings = EMBEDDER.embed_documents(questions)
-            FAQ_EMBEDDINGS = np.array(embeddings)
-            logger.info(f"[Worker] Loaded total {len(FAQ_CACHE)} FAQs and pre-calculated embeddings.")
-            logger.info(f"[Cache Debug] FAQキャッシュを計{len(FAQ_CACHE)}件ロードし、ベクトル化を完了しました。")
-            if FAQ_EMBEDDINGS is not None and len(FAQ_EMBEDDINGS) > 0:
-                logger.info(f"[Cache Safety] FAQ_EMBEDDINGS successfully populated. Shape: {FAQ_EMBEDDINGS.shape}")
-            else:
-                logger.error("[Cache Safety] FAQ_EMBEDDINGS is unexpectedly empty!")
-        else:
-            FAQ_EMBEDDINGS = np.array([])
-            logger.warning("[Cache Safety] No questions found to embed.")
+        # 🚀 ベクトル化（重い処理）はここでは行わず、_worker_loop内でLazy Load（遅延実行）するよう変更
+        logger.info(f"[Worker] Loaded total {len(FAQ_CACHE)} FAQs. Embeddings will be lazy-loaded on first miss.")
     except Exception as e:
-        logger.error(f"[Worker] Failed to init FAQ embeddings: {e}")
+        logger.error(f"[Worker] Failed to init FAQ cache normalization: {e}")
 
 def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.Event, 
                  google_api_key: str, creds_json: str, private_key: str, client_email: str):
@@ -128,20 +113,41 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                                 break
                         
                         # 2. 完全一致しなかった場合はベクトル検索
-                        if best_idx == -1 and EMBEDDER is not None and FAQ_EMBEDDINGS is not None and len(FAQ_EMBEDDINGS) > 0:
-                            try:
-                                query_embed = EMBEDDER.embed_query(item.message_text)
-                                query_vector = np.array(query_embed)
-                                
-                                norms = np.linalg.norm(FAQ_EMBEDDINGS, axis=1) * np.linalg.norm(query_vector)
-                                similarities = np.dot(FAQ_EMBEDDINGS, query_vector) / norms
-                                
-                                best_idx = int(np.argmax(similarities))
-                                max_sim = float(similarities[best_idx])
-                                logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
-                                output_queue.put({"type": "debug", "msg": f"🧠 思考プロセス: 類似度スコア {max_sim:.4f} (候補: {FAQ_CACHE[best_idx]['question'][:15]}...)"})
-                            except Exception as embed_e:
-                                logger.warning(f"[Worker] Embedding check failed during vector calculation: {embed_e}")
+                        if best_idx == -1:
+                            # 🚀 遅延ロード（Lazy Load）: 初回のベクトル検索時にのみ重い処理を実行
+                            if EMBEDDER is None:
+                                try:
+                                    logger.info("[Worker] Lazy-loading embeddings for vector search...")
+                                    output_queue.put({"type": "debug", "msg": "⏳ 思考プロセス: 初回キャッシュミスのため、ベクトルデータベースをバックグラウンド構築中..."})
+                                    EMBEDDER = GoogleGenerativeAIEmbeddings(
+                                        model="models/gemini-embedding-001",
+                                        google_api_key=google_api_key
+                                    )
+                                    questions = [item.get("question", "") for item in FAQ_CACHE if item.get("question")]
+                                    if questions:
+                                        embeddings = EMBEDDER.embed_documents(questions)
+                                        FAQ_EMBEDDINGS = np.array(embeddings)
+                                        logger.info(f"[Cache Safety] FAQ_EMBEDDINGS successfully lazy-loaded. Shape: {FAQ_EMBEDDINGS.shape}")
+                                    else:
+                                        FAQ_EMBEDDINGS = np.array([])
+                                        logger.warning("[Cache Safety] No questions found to embed during lazy load.")
+                                except Exception as embed_init_e:
+                                    logger.error(f"[Worker] Failed lazy load of embeddings: {embed_init_e}")
+
+                            if EMBEDDER is not None and FAQ_EMBEDDINGS is not None and len(FAQ_EMBEDDINGS) > 0:
+                                try:
+                                    query_embed = EMBEDDER.embed_query(item.message_text)
+                                    query_vector = np.array(query_embed)
+                                    
+                                    norms = np.linalg.norm(FAQ_EMBEDDINGS, axis=1) * np.linalg.norm(query_vector)
+                                    similarities = np.dot(FAQ_EMBEDDINGS, query_vector) / norms
+                                    
+                                    best_idx = int(np.argmax(similarities))
+                                    max_sim = float(similarities[best_idx])
+                                    logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
+                                    output_queue.put({"type": "debug", "msg": f"🧠 思考プロセス: 類似度スコア {max_sim:.4f} (候補: {FAQ_CACHE[best_idx]['question'][:15]}...)"})
+                                except Exception as embed_e:
+                                    logger.warning(f"[Worker] Embedding check failed during vector calculation: {embed_e}")
                         
                         if max_sim >= 0.75 and best_idx != -1:
                             cached_ans = FAQ_CACHE[best_idx].get("response_text", "")
