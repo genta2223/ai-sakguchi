@@ -43,9 +43,9 @@
 </head>
 <body>
     <div id="avatar-container">
-        <!-- Dual Layers for Seamless Transitions -->
-        <video id="v-a" class="v-layer" loop muted playsinline aria-hidden="true"></video>
-        <video id="v-b" class="v-layer" loop muted playsinline aria-hidden="true"></video>
+        <!-- Dual Layers for Seamless Transitions (Preload blocked to save memory) -->
+        <video id="v-a" class="v-layer" loop muted playsinline aria-hidden="true" preload="none" poster="app/static/poster_idle.jpg"></video>
+        <video id="v-b" class="v-layer" loop muted playsinline aria-hidden="true" preload="none" poster="app/static/poster_idle.jpg"></video>
         
         <div id="overlay">
             <div style="text-align: center;">
@@ -95,7 +95,8 @@
             return;
         }
 
-        // 1. Pre-load in background layer
+        // 1. Pre-load in background layer (assign poster dynamically before video fetches)
+        nextLayer.poster = (type === 'idle') ? 'app/static/poster_idle.jpg' : 'app/static/poster_talking.jpg';
         nextLayer.src = fullNextUrl;
         nextLayer.load();
 
@@ -194,6 +195,7 @@
 
     if (isStarted) {
         overlay.style.display = 'none';
+        layers[activeIdx].poster = 'app/static/poster_idle.jpg';
         layers[activeIdx].src = urls.idle && urls.idle.startsWith('data:') ? urls.idle : `${urls.idle}?v=${buster}`;
         layers[activeIdx].classList.add('active');
         layers[activeIdx].play().catch(e => {});
