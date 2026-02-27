@@ -185,8 +185,23 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                     }
                     import time
                     import random
-                    # 🌟 レスポンスの「緩和」 (Duration Guard): 爆速を避け、1.5秒〜3秒の人間らしい「間」を確保
-                    time.sleep(random.uniform(1.5, 3.0)) 
+                    
+                    # 🌟 レスポンスの「緩和」 (Duration Guard): 止まらずに「動きながら待つ」
+                    # time.sleep の完全撤廃。小刻みにテキストを進捗として流し、通信を維持する。
+                    delay = random.uniform(1.5, 3.0)
+                    start_t = time.time()
+                    
+                    chunk_size = max(1, len(reply_text) // 10)
+                    idx = 0
+                    while time.time() - start_t < delay:
+                        if idx <= len(reply_text):
+                            chunk = reply_text[:idx]
+                            output_queue.put({"type": "progress", "msg": f"回答を構築中: {chunk}..."})
+                            idx += chunk_size
+                        # CPUを焼き付けない程度に極小のイベント待機 (sleepの代替)
+                        stop_event.wait(0.2)
+                        
+                    output_queue.put({"type": "progress", "msg": "送信準備完了..."})
                     output_queue.put(result)
                     logger.info(f"[Worker] Task complete (FAQ Cache)")
                     continue
