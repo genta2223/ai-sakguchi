@@ -6,6 +6,7 @@ textColor = "#ffffff"
 font = "sans serif"
 
 [server]
+runOnSave = false
 headless = true
 port = 8501
 enableCORS = false
