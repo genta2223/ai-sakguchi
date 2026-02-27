@@ -184,7 +184,9 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         "is_initial_greeting": getattr(item, "is_initial_greeting", False)
                     }
                     import time
-                    time.sleep(0.5) # 🌟 レスポンスの「緩和」 (Smoothing)
+                    import random
+                    # 🌟 レスポンスの「緩和」 (Duration Guard): 爆速を避け、1.5秒〜3秒の人間らしい「間」を確保
+                    time.sleep(random.uniform(1.5, 3.0)) 
                     output_queue.put(result)
                     logger.info(f"[Worker] Task complete (FAQ Cache)")
                     continue
