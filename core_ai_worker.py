@@ -183,36 +183,15 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         "author": getattr(item, "author_name", ""),
                         "is_initial_greeting": getattr(item, "is_initial_greeting", False)
                     }
-                    import time
-                    import random
-                    
-                    # 🌟 レスポンスの「緩和」 (Duration Guard): 止まらずに「動きながら待つ」
-                    # time.sleep の完全撤廃。小刻みにテキストを進捗として流し、通信を維持する。
-                    delay = random.uniform(1.5, 3.0)
-                    start_t = time.time()
-                    
-                    chunk_size = max(1, len(reply_text) // 10)
-                    idx = 0
-                    while time.time() - start_t < delay:
-                        if idx <= len(reply_text):
-                            chunk = reply_text[:idx]
-                            output_queue.put({"type": "progress", "msg": f"回答を構築中: {chunk}..."})
-                            idx += chunk_size
-                        # CPUを焼き付けない程度に極小のイベント待機 (sleepの代替)
-                        stop_event.wait(0.2)
-                        
-                    output_queue.put({"type": "progress", "msg": "送信準備完了..."})
                     output_queue.put(result)
                     logger.info(f"[Worker] Task complete (FAQ Cache)")
                     continue
                 
                 # 2. AI Response
-                output_queue.put({"type": "progress", "msg": "Thinking..."})
                 reply_text, emotion = generate_response(item.message_text, api_key=google_api_key, use_cache=False)
                 output_queue.put({"type": "debug", "msg": f"🤖 思考プロセス: LLM回答生成完了 ({len(reply_text)}文字, 感情:{emotion})"})
                 
                 # 2. TTS
-                output_queue.put({"type": "progress", "msg": "Synthesizing voice..."})
                 output_queue.put({"type": "debug", "msg": "🎤 思考プロセス: 音声合成をリクエスト中..."})
                 audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
                                             private_key=private_key, client_email=client_email, 

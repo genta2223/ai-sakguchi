@@ -168,12 +168,7 @@ def poll_results(placeholder, session_id: str):
     try:
         while True:
             res = st.session_state.output_queue.get_nowait()
-            if res["type"] == "progress":
-                st.session_state.progress_msg = res["msg"]
-                st.session_state.processing = True
-                # No st.rerun() or eager st.spinner() here to prevent WebSocket spam.
-                # Let the st_autorefresh handle UI updates calmly.
-            elif res["type"] == "debug":
+            if res["type"] == "debug":
                 if "debug_logs" not in st.session_state:
                     st.session_state.debug_logs = []
                 st.session_state.debug_logs.append(res["msg"])
