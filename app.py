@@ -171,12 +171,8 @@ def poll_results(placeholder, session_id: str):
             if res["type"] == "progress":
                 st.session_state.progress_msg = res["msg"]
                 st.session_state.processing = True
-                
-                # 🌟 通信維持 (Heartbeat): 思考中はスピナーを生成し続けStreamlitに「生きている」ことをアピールする
-                with placeholder:
-                    with st.spinner(f"🤔 {res['msg']}"):
-                        time.sleep(0.1)
-                        
+                # No st.rerun() or eager st.spinner() here to prevent WebSocket spam.
+                # Let the st_autorefresh handle UI updates calmly.
             elif res["type"] == "debug":
                 if "debug_logs" not in st.session_state:
                     st.session_state.debug_logs = []
@@ -187,29 +183,17 @@ def poll_results(placeholder, session_id: str):
                 text_hash = hashlib.md5(res["response_text"].encode("utf-8")).hexdigest()[:8]
                 task_id = f"{time.time()}_{text_hash}"
 
-                # 🌟 「聖域動画」の読み込み遅延: 先にテキストタスクだけを投げ、動画は0.3秒後に投げる時間差攻撃
-                task_data_text = {
-                    "task_id": task_id + "_texting",
-                    "audio_b64": None, # 動画はまだ送らない
-                    "emotion": res["emotion"],
-                    "response_text": res["response_text"],
-                    "is_initial_greeting": res.get("is_initial_greeting", False)
-                }
-                st.session_state.current_avatar_task = task_data_text
-                
-                # ここで一瞬だけUIループに返すことでパケットを分割
-                time.sleep(0.3)
-
-                task_data_full = {
+                # 🌟 時間差攻撃の「単純化」: 一発で静かに画面を更新
+                task_data = {
                     "task_id": task_id,
-                    "audio_b64": res["audio_b64"], # 0.3秒後に重い音声/動画トリガーを投下
+                    "audio_b64": res["audio_b64"],
                     "emotion": res["emotion"],
                     "response_text": res["response_text"],
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
                 
                 # 🚀 In-Memory State: Store directly in session state instead of writing to file
-                st.session_state.current_avatar_task = task_data_full
+                st.session_state.current_avatar_task = task_data
                 logger.info(f"[App] Updated in-memory task: {task_id}")
                 
                 if res.get("is_initial_greeting"):
@@ -360,9 +344,9 @@ def main():
         st.session_state.deployment_done = True
         logger.info(f"[App] In-memory mode active (Filesystem reset skipped)")
 
-    # Auto-refresh: 処理中は高頻度(1秒)、待機中は60秒
+    # Auto-refresh: 処理中は落ち着いた頻度(3秒〜5秒)、待機中は60秒に延長して通信負荷を下げる
     if st.session_state.processing:
-        st_autorefresh(interval=1000, limit=None, key="auto_refresh_fast")
+        st_autorefresh(interval=3000, limit=None, key="auto_refresh_fast")
     else:
         st_autorefresh(interval=60000, limit=None, key="auto_refresh_slow")
 
