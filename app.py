@@ -175,7 +175,6 @@ def poll_results(placeholder, session_id: str):
                 # 🌟 通信維持 (Heartbeat): 思考中はスピナーを生成し続けStreamlitに「生きている」ことをアピールする
                 with placeholder:
                     with st.spinner(f"🤔 {res['msg']}"):
-                        import time
                         time.sleep(0.1)
                         
             elif res["type"] == "debug":
@@ -199,7 +198,6 @@ def poll_results(placeholder, session_id: str):
                 st.session_state.current_avatar_task = task_data_text
                 
                 # ここで一瞬だけUIループに返すことでパケットを分割
-                import time
                 time.sleep(0.3)
 
                 task_data_full = {
