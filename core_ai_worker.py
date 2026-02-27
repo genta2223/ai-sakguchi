@@ -168,20 +168,50 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                                             private_key=private_key, client_email=client_email, 
                                             use_cache=False)
                 
-                # 3. Auto-Repair Cache if needed
-                if cache_to_repair is not None:
-                    # Verify new response is good
-                    rejection_phrases = ["答えられません", "学習中", "エラー", "申し訳ありません"]
-                    if not any(rp in reply_text for rp in rejection_phrases):
+                # 3. Auto-Repair or Append Cache if needed
+                is_valid_answer = True
+                rejection_phrases = ["答えられません", "学習中", "エラー", "申し訳ありません"]
+                if any(rp in reply_text for rp in rejection_phrases):
+                    is_valid_answer = False
+
+                if not is_system and not is_greeting and is_valid_answer:
+                    if cache_to_repair is not None:
                         logger.info(f"🔧 [Worker] Auto-repairing cache index {cache_to_repair} with new valid answer.")
                         FAQ_CACHE[cache_to_repair]["response_text"] = reply_text
                         FAQ_CACHE[cache_to_repair]["emotion"] = emotion
                         FAQ_CACHE[cache_to_repair]["audio_b64"] = audio_b64
+                    else:
+                        logger.info(f"➕ [Worker] Appending new wild question to cache.")
+                        new_cache_entry = {
+                            "question": item.message_text,
+                            "response_text": reply_text,
+                            "emotion": emotion,
+                            "audio_b64": audio_b64,
+                            "norm_key": normalize_text(item.message_text)
+                        }
+                        FAQ_CACHE.append(new_cache_entry)
                         try:
-                            with open(LOCAL_STATIC_DIR / "faq_cache.json", "w", encoding="utf-8") as f:
-                                json.dump(FAQ_CACHE, f, ensure_ascii=False, indent=2)
+                            if EMBEDDER is not None:
+                                new_embed = np.array([EMBEDDER.embed_query(item.message_text)])
+                                if FAQ_EMBEDDINGS is not None:
+                                    FAQ_EMBEDDINGS = np.vstack([FAQ_EMBEDDINGS, new_embed])
+                                else:
+                                    FAQ_EMBEDDINGS = new_embed
                         except Exception as e:
-                            logger.error(f"Failed to write repaired cache back to disk: {e}")
+                            logger.error(f"Failed to update embeddings dynamically: {e}")
+                    
+                    try:
+                        # Remove 'norm_key' before saving to keep it clean
+                        save_data = []
+                        for c in FAQ_CACHE:
+                            c_copy = c.copy()
+                            c_copy.pop("norm_key", None)
+                            save_data.append(c_copy)
+                        with open(LOCAL_STATIC_DIR / "faq_cache.json", "w", encoding="utf-8") as f:
+                            json.dump(save_data, f, ensure_ascii=False, indent=2)
+                        logger.info(f"💾 [Worker] Safely saved faq_cache.json. Total entries: {len(FAQ_CACHE)}")
+                    except Exception as e:
+                        logger.error(f"Failed to write cache back to disk: {e}")
 
                 # 4. Final Result
                 result = {
