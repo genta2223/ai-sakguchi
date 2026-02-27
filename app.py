@@ -171,6 +171,13 @@ def poll_results(placeholder, session_id: str):
             if res["type"] == "progress":
                 st.session_state.progress_msg = res["msg"]
                 st.session_state.processing = True
+                
+                # 🌟 通信維持 (Heartbeat): 思考中はスピナーを生成し続けStreamlitに「生きている」ことをアピールする
+                with placeholder:
+                    with st.spinner(f"🤔 {res['msg']}"):
+                        import time
+                        time.sleep(0.1)
+                        
             elif res["type"] == "debug":
                 if "debug_logs" not in st.session_state:
                     st.session_state.debug_logs = []
@@ -181,16 +188,30 @@ def poll_results(placeholder, session_id: str):
                 text_hash = hashlib.md5(res["response_text"].encode("utf-8")).hexdigest()[:8]
                 task_id = f"{time.time()}_{text_hash}"
 
-                task_data = {
+                # 🌟 「聖域動画」の読み込み遅延: 先にテキストタスクだけを投げ、動画は0.3秒後に投げる時間差攻撃
+                task_data_text = {
+                    "task_id": task_id + "_texting",
+                    "audio_b64": None, # 動画はまだ送らない
+                    "emotion": res["emotion"],
+                    "response_text": res["response_text"],
+                    "is_initial_greeting": res.get("is_initial_greeting", False)
+                }
+                st.session_state.current_avatar_task = task_data_text
+                
+                # ここで一瞬だけUIループに返すことでパケットを分割
+                import time
+                time.sleep(0.3)
+
+                task_data_full = {
                     "task_id": task_id,
-                    "audio_b64": res["audio_b64"],
+                    "audio_b64": res["audio_b64"], # 0.3秒後に重い音声/動画トリガーを投下
                     "emotion": res["emotion"],
                     "response_text": res["response_text"],
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
                 
                 # 🚀 In-Memory State: Store directly in session state instead of writing to file
-                st.session_state.current_avatar_task = task_data
+                st.session_state.current_avatar_task = task_data_full
                 logger.info(f"[App] Updated in-memory task: {task_id}")
                 
                 if res.get("is_initial_greeting"):
