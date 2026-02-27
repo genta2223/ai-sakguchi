@@ -27,13 +27,13 @@ class PathManager:
     @classmethod
     def get_video_url_map(cls):
         """動画ファイルのURLマップを取得 (ハイブリッド配信用)
-        StreamlitのenableStaticServing=trueにより、/static/filename.webm でアクセス可能。
+        StreamlitのenableStaticServing=trueにより、/app/static/filename.webm でアクセス可能。
         """
         return {
-            "idle": "/static/idle_blink.webm",
-            "normal": "/static/talking_normal.webm",
-            "strong": "/static/talking_strong.webm",
-            "wait": "/static/talking_wait.webm"
+            "idle": "app/static/idle_blink.webm",
+            "normal": "app/static/talking_normal.webm",
+            "strong": "app/static/talking_strong.webm",
+            "wait": "app/static/talking_wait.webm"
         }
 
     @classmethod

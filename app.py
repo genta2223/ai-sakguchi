@@ -237,20 +237,46 @@ def poll_results(placeholder, session_id: str):
 # ============================================================
 # Render Avatar Component
 # ============================================================
+@st.cache_resource
+def get_waiting_placeholder_html():
+    """超軽量なプレースホルダー（思考中）をメモリにキャッシュし、WebSocketのパンクを防ぐ"""
+    return """
+    <div style="height: 600px; width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #0e1117; color: #ffffff; font-family: sans-serif; border-radius: 12px; border: 1px solid #333;">
+        <div style="font-size: 60px; margin-bottom: 20px; animation: pulse 1.5s infinite;">🤔</div>
+        <h3 style="margin: 0; padding: 0;">AI阪口源太が回答を準備中...</h3>
+        <p style="color: #aaa; margin-top: 10px; font-size: 14px;">(通信最適化のため映像ストリーミングを一時停止しています)</p>
+        <style>
+            @keyframes pulse {
+                0% { transform: scale(1); opacity: 1; }
+                50% { transform: scale(1.1); opacity: 0.7; }
+                100% { transform: scale(1); opacity: 1; }
+            }
+        </style>
+    </div>
+    """
+
 def render_avatar(placeholder, session_id: str):
     """Render the avatar using direct HTML injection with Hybrid Delivery (URL Videos + In-Memory Tasks)."""
     try:
+        # 🚀 現在のタスクデータを取得 (TTS音声は引き続きインメモリで即時受け渡し)
+        task_data = st.session_state.get("current_avatar_task")
+        task_id = task_data.get("task_id") if task_data else None
+
+        # 🚀 思考中（Waiting）状態は重いHTML動画プレイヤーを破棄し、メモリに常駐した超軽量なプレースホルダーにする
+        if task_id in ["waiting", "processing"]:
+            with placeholder:
+                st.components.v1.html(get_waiting_placeholder_html(), height=600)
+            return
+
         html_path = LOCAL_STATIC_DIR / "avatar.html"
         if html_path.exists():
             html_content = html_path.read_text(encoding="utf-8")
             
-            # 1. 🚀 WebM動画のBase64エンコードマップを取得 (Streamlit Cloudのパス問題回避のため直埋め込み)
-            video_urls = PathManager.get_video_base64_map()
+            # 1. 🚀 WebM動画のURLマップを取得 (Base64をやめて通信路のWebSocket負荷を劇的に下げる)
+            # URL配信モードへ切り替え、Streamlitの静的アセット配信を利用する
+            video_urls = PathManager.get_video_url_map()
             
-            # 2. 🚀 現在のタスクデータを取得 (TTS音声は引き続きインメモリで即時受け渡し)
-            task_data = st.session_state.get("current_avatar_task")
-            
-            # 3. 🚀 データをHTMLに注入
+            # 2. 🚀 データをHTMLに注入
             app_data_json = json.dumps({
                 "video_urls": video_urls,
                 "task": task_data,
