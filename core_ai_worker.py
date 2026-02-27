@@ -80,7 +80,22 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
     """Background thread: Process Gemini and TTS with explicitly injected secrets."""
     global FAQ_CACHE, FAQ_EMBEDDINGS, EMBEDDER
     logger.info("[Worker] Thread started with injected secrets (Bucket Relay).")
+    # 🌟 Silent Pre-load: 起動直後のバックグラウンドスレッドで重い処理を静かに完了させる
     init_faq_cache(google_api_key)
+    if FAQ_CACHE and EMBEDDER is None:
+        try:
+            EMBEDDER = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-001",
+                google_api_key=google_api_key
+            )
+            questions = [item.get("question", "") for item in FAQ_CACHE if item.get("question")]
+            if questions:
+                embeddings = EMBEDDER.embed_documents(questions)
+                FAQ_EMBEDDINGS = np.array(embeddings)
+            else:
+                FAQ_EMBEDDINGS = np.array([])
+        except Exception:
+            pass # Silent fail to avoid polluting WebSocket with logs
     while not stop_event.is_set():
         try:
             item = input_queue.get(timeout=1)
@@ -113,41 +128,20 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                                 break
                         
                         # 2. 完全一致しなかった場合はベクトル検索
-                        if best_idx == -1:
-                            # 🚀 遅延ロード（Lazy Load）: 初回のベクトル検索時にのみ重い処理を実行
-                            if EMBEDDER is None:
-                                try:
-                                    logger.info("[Worker] Lazy-loading embeddings for vector search...")
-                                    output_queue.put({"type": "debug", "msg": "⏳ 思考プロセス: 初回キャッシュミスのため、ベクトルデータベースをバックグラウンド構築中..."})
-                                    EMBEDDER = GoogleGenerativeAIEmbeddings(
-                                        model="models/gemini-embedding-001",
-                                        google_api_key=google_api_key
-                                    )
-                                    questions = [item.get("question", "") for item in FAQ_CACHE if item.get("question")]
-                                    if questions:
-                                        embeddings = EMBEDDER.embed_documents(questions)
-                                        FAQ_EMBEDDINGS = np.array(embeddings)
-                                        logger.info(f"[Cache Safety] FAQ_EMBEDDINGS successfully lazy-loaded. Shape: {FAQ_EMBEDDINGS.shape}")
-                                    else:
-                                        FAQ_EMBEDDINGS = np.array([])
-                                        logger.warning("[Cache Safety] No questions found to embed during lazy load.")
-                                except Exception as embed_init_e:
-                                    logger.error(f"[Worker] Failed lazy load of embeddings: {embed_init_e}")
-
-                            if EMBEDDER is not None and FAQ_EMBEDDINGS is not None and len(FAQ_EMBEDDINGS) > 0:
-                                try:
-                                    query_embed = EMBEDDER.embed_query(item.message_text)
-                                    query_vector = np.array(query_embed)
-                                    
-                                    norms = np.linalg.norm(FAQ_EMBEDDINGS, axis=1) * np.linalg.norm(query_vector)
-                                    similarities = np.dot(FAQ_EMBEDDINGS, query_vector) / norms
-                                    
-                                    best_idx = int(np.argmax(similarities))
-                                    max_sim = float(similarities[best_idx])
-                                    logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
-                                    output_queue.put({"type": "debug", "msg": f"🧠 思考プロセス: 類似度スコア {max_sim:.4f} (候補: {FAQ_CACHE[best_idx]['question'][:15]}...)"})
-                                except Exception as embed_e:
-                                    logger.warning(f"[Worker] Embedding check failed during vector calculation: {embed_e}")
+                        if best_idx == -1 and EMBEDDER is not None and FAQ_EMBEDDINGS is not None and len(FAQ_EMBEDDINGS) > 0:
+                            try:
+                                query_embed = EMBEDDER.embed_query(item.message_text)
+                                query_vector = np.array(query_embed)
+                                
+                                norms = np.linalg.norm(FAQ_EMBEDDINGS, axis=1) * np.linalg.norm(query_vector)
+                                similarities = np.dot(FAQ_EMBEDDINGS, query_vector) / norms
+                                
+                                best_idx = int(np.argmax(similarities))
+                                max_sim = float(similarities[best_idx])
+                                logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
+                                output_queue.put({"type": "debug", "msg": f"🧠 思考プロセス: 類似度スコア {max_sim:.4f} (候補: {FAQ_CACHE[best_idx]['question'][:15]}...)"})
+                            except Exception as embed_e:
+                                logger.warning(f"[Worker] Embedding check failed during vector calculation: {embed_e}")
                         
                         if max_sim >= 0.75 and best_idx != -1:
                             cached_ans = FAQ_CACHE[best_idx].get("response_text", "")
@@ -189,8 +183,10 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         "author": getattr(item, "author_name", ""),
                         "is_initial_greeting": getattr(item, "is_initial_greeting", False)
                     }
+                    import time
+                    time.sleep(0.5) # 🌟 レスポンスの「緩和」 (Smoothing)
                     output_queue.put(result)
-                    logger.info(f"[Worker] Task complete (FAQ Cache): {reply_text[:20]}...")
+                    logger.info(f"[Worker] Task complete (FAQ Cache)")
                     continue
                 
                 # 2. AI Response
