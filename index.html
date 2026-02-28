@@ -292,8 +292,14 @@
             source.connect(audioContext.destination);
             source.start(0);
             currentAudioContext = source;
+            
+            // 音声の再生が完了したら待機状態（アイドル）に戻す
+            source.onended = () => {
+                switchVideo("idle_blink.webm", true);
+            };
         } catch (e) {
             console.error("Audio playback error:", e);
+            switchVideo("idle_blink.webm", true);
         }
     }
 
@@ -316,24 +322,26 @@
     }
 
     async function loadGreeting() {
-        try {
-            const res = await fetch("static/greeting_cache.json");
-            if (res.ok) {
-                const data = await res.json();
-                let vid = "talking_normal.webm";
-                const em = (data.emotion || "normal").toLowerCase();
-                if (em.includes("idle")) vid = "idle_blink.webm";
-                else if (em.includes("strong")) vid = "talking_strong.webm";
-                
-                switchVideo(vid, false);
-                appendMessage("assistant", data.response_text || "与那国町議会議員の阪口源太です。ご質問をお待ちしております。");
-                if (data.audio_b64) {
-                    playAudioBase64(data.audio_b64);
+            try {
+                const res = await fetch("static/greeting_cache.json");
+                if (res.ok) {
+                    const data = await res.json();
+                    let vid = "talking_normal.webm";
+                    const em = (data.emotion || "normal").toLowerCase();
+                    if (em.includes("idle")) vid = "idle_blink.webm";
+                    else if (em.includes("strong")) vid = "talking_strong.webm";
+                    
+                    appendMessage("assistant", data.response_text || "与那国町議会議員の阪口源太です。ご質問をお待ちしております。");
+                    if (data.audio_b64) {
+                        switchVideo(vid, true); // 音声同期のためloopをtrueに
+                        playAudioBase64(data.audio_b64);
+                    } else {
+                        switchVideo(vid, false);
+                    }
+                } else {
+                    throw new Error("No cache");
                 }
-            } else {
-                throw new Error("No cache");
-            }
-        } catch(e) {
+            } catch(e) {
             console.log("Greeting cache load failed, using fallback:", e);
             switchVideo("idle_blink.webm", true);
             appendMessage("assistant", "与那国町議会議員の阪口源太です。ご質問をお待ちしております。");
@@ -379,10 +387,12 @@
             if (match && match[1]) {
                 const data = JSON.parse(match[1]);
                 if (data.status === "success") {
-                    switchVideo(data.video_filename || "talking_normal.webm", false);
                     appendMessage("assistant", data.response_text);
                     if (data.audio_b64) {
+                        switchVideo(data.video_filename || "talking_normal.webm", true); // 音声が終わるまでループ
                         playAudioBase64(data.audio_b64);
+                    } else {
+                        switchVideo(data.video_filename || "talking_normal.webm", false);
                     }
                 } else {
                     appendMessage("system", "処理エラー: " + data.message);

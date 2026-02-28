@@ -1,20 +1,3 @@
-[theme]
-primaryColor = "#0078d7"
-backgroundColor = "#0e1117"
-secondaryBackgroundColor = "#1a1a2e"
-textColor = "#ffffff"
-font = "sans serif"
-
 [server]
-runOnSave = false
-headless = true
-port = 8501
 enableCORS = false
-enableWebsocketCompression = false
-maxMessageSize = 200
 enableXsrfProtection = false
-enableStaticServing = true
-fileWatcherType = "none"
-
-[browser]
-gatherUsageStats = false
