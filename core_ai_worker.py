@@ -113,7 +113,6 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                 
                 if FAQ_CACHE and not is_system and not is_greeting:
                     try:
-                        output_queue.put({"type": "debug", "msg": "🔍 思考プロセス: キャッシュを検索中..."})
                         norm_query = normalize_text(item.message_text)
                         best_idx = -1
                         max_sim = 0.0
@@ -122,7 +121,6 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         for i, cache_item in enumerate(FAQ_CACHE):
                             if cache_item.get("norm_key") == norm_query:
                                 logger.info(f"[Cache Debug] ⚡ EXACT MATCH HIT! (正規化キー完全一致)")
-                                output_queue.put({"type": "debug", "msg": f"✅ 思考プロセス: 正規化キー完全一致! (質問: {cache_item['question'][:15]}...)"})
                                 best_idx = i
                                 max_sim = 1.0
                                 break
@@ -139,7 +137,6 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                                 best_idx = int(np.argmax(similarities))
                                 max_sim = float(similarities[best_idx])
                                 logger.info(f'[Cache Debug] 入力: "{item.message_text}" | 最も似ているFAQ: "{FAQ_CACHE[best_idx]["question"]}" | 類似度スコア: {max_sim:.4f}')
-                                output_queue.put({"type": "debug", "msg": f"🧠 思考プロセス: 類似度スコア {max_sim:.4f} (候補: {FAQ_CACHE[best_idx]['question'][:15]}...)"})
                             except Exception as embed_e:
                                 logger.warning(f"[Worker] Embedding check failed during vector calculation: {embed_e}")
                         
@@ -154,25 +151,16 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                             else:
                                 logger.info(f"[Worker] FAQ Cache HIT! Similarity: {max_sim:.2f} (Matched: {FAQ_CACHE[best_idx]['question']})")
                                 logger.info("[Cache Debug] ⚡ CACHE HIT! (生成をスキップします)")
-                                output_queue.put({"type": "debug", "msg": "⚡ 思考プロセス: 十分な一致。生成をスキップしキャッシュを返します。"})
                                 best_match_item = FAQ_CACHE[best_idx]
                         else:
                             logger.info("[Cache Debug] 🧠 CACHE MISS. (LLM生成に進みます)")
-                            output_queue.put({"type": "debug", "msg": "📝 思考プロセス: キャッシュミス。LLMによる新規生成を構成中..."})
                     except Exception as e:
                         logger.warning(f"[Worker] Embedding check failed: {e}")
-                        output_queue.put({"type": "debug", "msg": f"⚠️ 思考プロセス: キャッシュ確認エラー ({e})。LLM生成に切り替え。"})
 
                 if best_match_item:
                     reply_text = best_match_item["response_text"]
                     emotion = best_match_item.get("emotion", "Neutral")
-                    audio_b64 = best_match_item.get("audio_b64")
-                    
-                    if not audio_b64:
-                        logger.warning("[Worker] FAQ Cache has no audio. Generating...")
-                        audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
-                                                    private_key=private_key, client_email=client_email, 
-                                                    use_cache=False)
+                    audio_b64 = best_match_item.get("audio_b64", "")
                     
                     result = {
                         "type": "result",
@@ -184,7 +172,7 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         "is_initial_greeting": getattr(item, "is_initial_greeting", False)
                     }
                     output_queue.put(result)
-                    logger.info(f"[Worker] Task complete (FAQ Cache)")
+                    logger.info(f"[Worker] Task complete (FAQ Cache) - TTS SKIPPED 🚀")
                     continue
                 
                 # 2. AI Response
