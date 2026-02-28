@@ -162,6 +162,13 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                     emotion = best_match_item.get("emotion", "Neutral")
                     audio_b64 = best_match_item.get("audio_b64", "")
                     
+                    # 音声がキャッシュにない場合はTTSで生成 (faq_cache.jsonは音声を含まないエントリがある)
+                    if not audio_b64:
+                        logger.info("[Worker] FAQ Cache has no audio. Generating TTS...")
+                        audio_b64 = synthesize_speech(reply_text, creds_json=creds_json, 
+                                                    private_key=private_key, client_email=client_email, 
+                                                    use_cache=False)
+                    
                     result = {
                         "type": "result",
                         "audio_b64": audio_b64,
@@ -172,7 +179,7 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                         "is_initial_greeting": getattr(item, "is_initial_greeting", False)
                     }
                     output_queue.put(result)
-                    logger.info(f"[Worker] Task complete (FAQ Cache) - TTS SKIPPED 🚀")
+                    logger.info(f"[Worker] Task complete (FAQ Cache){' - TTS SKIPPED 🚀' if best_match_item.get('audio_b64') else ''}")
                     continue
                 
                 # 2. AI Response
