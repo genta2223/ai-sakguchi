@@ -32,6 +32,11 @@ from youtube_monitor import ChatItem, start_youtube_monitor
 from core_paths import PathManager, LOCAL_STATIC_DIR
 from core_ai_worker import init_worker
 
+# 🚀 モジュールレベルキャッシュ: 動画Base64マップを一度だけ生成し、全rerunsで再利用
+# (session_stateに入れるとOOM、毎回読み直すとHTMLが変わるかもしれない)
+_VIDEO_B64_CACHE = None
+_HTML_TEMPLATE_CACHE = None
+
 # ============================================================
 # Configuration
 # ============================================================
@@ -133,7 +138,7 @@ def init_youtube_monitor():
 # ============================================================
 # Process Queue Handlers
 # ============================================================
-def poll_results(placeholder, session_id: str) -> bool:
+def poll_results(session_id: str) -> bool:
     """Checks the output queue for finished tasks. Returns True if a new result was found."""
     found_result = False
     try:
@@ -143,7 +148,6 @@ def poll_results(placeholder, session_id: str) -> bool:
                 st.session_state.progress_msg = res["msg"]
                 st.session_state.processing = True
             elif res["type"] == "result":
-                # Robust Task ID: time + hash of text
                 text_hash = hashlib.md5(res["response_text"].encode("utf-8")).hexdigest()[:8]
                 task_id = f"{time.time()}_{text_hash}"
 
@@ -155,7 +159,6 @@ def poll_results(placeholder, session_id: str) -> bool:
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
                 
-                # 🚀 データを直接session_stateに格納 (数MBならStreamlitは耐えれる)
                 st.session_state.current_avatar_task = task_data
                 logger.info(f"[App] Updated in-memory task: {task_id}")
                 
@@ -183,10 +186,8 @@ def poll_results(placeholder, session_id: str) -> bool:
                 found_result = True
             
             elif res["type"] == "error":
-                with placeholder:
-                    st.error(f"Processing Error: {res['msg']}")
                 st.session_state.processing = False
-                st.session_state.progress_msg = "Error occurred"
+                st.session_state.progress_msg = f"Error: {res['msg']}"
     except Empty:
         pass
     return found_result
@@ -195,20 +196,23 @@ def poll_results(placeholder, session_id: str) -> bool:
 # ============================================================
 # Render Avatar Component
 # ============================================================
-def render_avatar(placeholder, session_id: str):
-    """Render the avatar using direct HTML injection with Hybrid Delivery (URL Videos + In-Memory Tasks)."""
+def render_avatar(session_id: str):
+    """Render the avatar directly (NOT inside st.empty) so Streamlit preserves the iframe across reruns."""
     try:
         html_path = LOCAL_STATIC_DIR / "avatar.html"
         if html_path.exists():
-            html_content = html_path.read_text(encoding="utf-8")
+            # HTMLテンプレートもモジュールレベルでキャッシュ
+            global _VIDEO_B64_CACHE, _HTML_TEMPLATE_CACHE
+            if _VIDEO_B64_CACHE is None:
+                _VIDEO_B64_CACHE = PathManager.get_video_base64_map()
+            if _HTML_TEMPLATE_CACHE is None:
+                _HTML_TEMPLATE_CACHE = html_path.read_text(encoding="utf-8")
             
-            # 1. 🚀 WebM動画のBase64エンコードマップを取得 (Streamlit Cloudのパス問題回避のため直埋め込み)
-            video_urls = PathManager.get_video_base64_map()
-            
-            # 2. 🚀 現在のタスクデータを取得 (audio_b64含むフルデータ)
+            video_urls = _VIDEO_B64_CACHE
+            html_content = _HTML_TEMPLATE_CACHE
             task_data = st.session_state.get("current_avatar_task")
             
-            # 3. 🚀 データをHTMLに注入 (★ busterはtask_idで固定し、タスクが変わった時だけiframeを再生成)
+            # buster = task_id: タスクが変わった時だけHTMLが変わる → iframeが再生成される
             task_id = task_data.get("task_id", "idle") if task_data else "idle"
             app_data_json = json.dumps({
                 "video_urls": video_urls,
@@ -224,15 +228,13 @@ def render_avatar(placeholder, session_id: str):
             """
             final_html = html_content.replace("<head>", f"<head>{injection}")
             
-            with placeholder:
-                st.components.v1.html(final_html, height=600, scrolling=False)
+            # ★ 核心: st.empty()を使わず直接描画 → Streamlitがハッシュ比較でiframeを保持
+            st.components.v1.html(final_html, height=600, scrolling=False)
         else:
-            with placeholder:
-                st.error("avatar.html not found.")
+            st.error("avatar.html not found.")
     except Exception as e:
         logger.error(f"Failed to render avatar: {e}")
-        with placeholder:
-            st.error(f"Render Error: {e}")
+        st.error(f"Render Error: {e}")
 
 
 
@@ -249,9 +251,8 @@ def main():
         PathManager.ensure_safe_deployment()
         st.session_state.deployment_done = True
 
-    # 🚀 動的ポーリング: 処理中は2秒間隔で画面更新、アイドル時は60秒
-    refresh_interval = 2000 if st.session_state.get("processing", False) else 60000
-    st_autorefresh(interval=refresh_interval, limit=None, key="auto_refresh")
+    # 固定5秒ポーリング (動的切り替えはCloudでコンポーネントリセットループを起こすため廃止)
+    st_autorefresh(interval=5000, limit=None, key="auto_refresh")
 
     # Initialize services
     init_youtube_monitor()
@@ -291,14 +292,11 @@ def main():
                 )
                 st.session_state.queue.put(item)
 
-    # --- Avatar Area (top) ---
-    avatar_container = st.empty()
-
     # ポーリング → 結果をsession_stateに反映
-    poll_results(avatar_container, sid)
+    poll_results(sid)
 
-    # render_avatarは常に最新のsession_stateで描画 (追加のst.rerun()は不要)
-    render_avatar(avatar_container, sid)
+    # ★ 核心: st.empty()を使わず直接描画し、iframeの再生成を防ぐ
+    render_avatar(sid)
 
     # --- Input Area (Fragmented) ---
     @st.fragment
