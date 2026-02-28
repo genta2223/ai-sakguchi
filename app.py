@@ -161,8 +161,9 @@ def queue_startup_greeting():
 # ============================================================
 # Process Queue Handlers
 # ============================================================
-def poll_results(placeholder, session_id: str):
-    """Checks the output queue for finished tasks."""
+def poll_results(placeholder, session_id: str) -> bool:
+    """Checks the output queue for finished tasks. Returns True if a new result was found."""
+    found_result = False
     try:
         while True:
             res = st.session_state.output_queue.get_nowait()
@@ -190,7 +191,7 @@ def poll_results(placeholder, session_id: str):
                 except Exception as e:
                     logger.warning(f"[App] Failed to write heavy task file: {e}")
 
-                # 🚀 Streamlitのsession_stateには軽量な参照(ID)だけを渡す -> これにより描画ラグ(20秒)が完全に消滅
+                # 🚀 Streamlitのsession_stateには軽量な参照(ID)だけを渡す
                 task_data_light = {
                     "task_id": task_id,
                     "emotion": res["emotion"],
@@ -202,10 +203,7 @@ def poll_results(placeholder, session_id: str):
                 logger.info(f"[App] Updated light in-memory task: {task_id}")
                 
                 if res.get("is_initial_greeting"):
-                    # Cache greeting task data in session state for other users/sessions if needed,
                     st.session_state.greeting_task_cache = task_data_full
-                    
-                    # 🚀 物理ファイルにも永続保存 (再起動後の爆速起動のため)
                     try:
                         cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
                         with open(cache_file, "w", encoding="utf-8") as f:
@@ -214,7 +212,6 @@ def poll_results(placeholder, session_id: str):
                     except Exception as e:
                         logger.warning(f"[Cache] Failed to save to physical file: {e}")
 
-                # Still update history for UI
                 st.session_state.history.append({
                     "question": res["question"],
                     "author": res["author"],
@@ -226,8 +223,7 @@ def poll_results(placeholder, session_id: str):
                 
                 st.session_state.processing = False
                 st.session_state.progress_msg = "Ready"
-                # NO st.rerun() HERE - let the next auto-refresh update the UI 
-                # to prevent interrupting the JS execution that just started polling.
+                found_result = True
             
             elif res["type"] == "error":
                 with placeholder:
@@ -236,6 +232,7 @@ def poll_results(placeholder, session_id: str):
                 st.session_state.progress_msg = "Error occurred"
     except Empty:
         pass
+    return found_result
 
 
 # ============================================================
@@ -248,10 +245,12 @@ def render_avatar(placeholder, session_id: str):
         if html_path.exists():
             html_content = html_path.read_text(encoding="utf-8")
             
-            # 1. 🚀 WebM動画のBase64エンコードマップを取得 (Streamlit Cloudのパス問題回避のため直埋め込み)
-            video_urls = PathManager.get_video_base64_map()
+            # 1. 🚀 動画Base64マップをセッションキャッシュ (毎回4本のWebMを再エンコードしない = 数秒短縮)
+            if "_video_b64_cache" not in st.session_state:
+                st.session_state._video_b64_cache = PathManager.get_video_base64_map()
+            video_urls = st.session_state._video_b64_cache
             
-            # 2. 🚀 現在のタスクデータを取得 (TTS音声は引き続きインメモリで即時受け渡し)
+            # 2. 🚀 現在のタスクデータを取得 (軽量参照のみ)
             task_data = st.session_state.get("current_avatar_task")
             
             # 3. 🚀 データをHTMLに注入
@@ -392,8 +391,9 @@ def main():
         st.session_state.deployment_done = True
         logger.info(f"[App] In-memory mode active (Filesystem reset skipped)")
 
-    # Auto-refresh every 60 seconds (Heartbeat only)
-    st_autorefresh(interval=60000, limit=None, key="auto_refresh")
+    # 🚀 動的ポーリング: 処理中は2秒間隔で画面更新、アイドル時は60秒
+    refresh_interval = 2000 if st.session_state.get("processing", False) else 60000
+    st_autorefresh(interval=refresh_interval, limit=None, key="auto_refresh")
 
     # Initialize services
     init_youtube_monitor()
@@ -436,10 +436,14 @@ def main():
     # --- Avatar Area (top) ---
     avatar_container = st.empty()
 
-    # polling status (pass container for error display)
-    poll_results(avatar_container, sid)
+    # 🚀 ポーリング→結果発見→即座にst.rerun()で画面を更新
+    got_result = poll_results(avatar_container, sid)
 
     render_avatar(avatar_container, sid)
+    
+    # 🚀 結果が見つかった場合、即座に再描画して最新のアバター状態を反映
+    if got_result:
+        st.rerun()
     
     # Mark as started so subsequent reruns (heartbeat or full) include the flag
     st.session_state.started = True
