@@ -64,6 +64,21 @@
         #avatar-area img.active, #avatar-area video.active {
             display: block;
         }
+        #response-text {
+            position: absolute;
+            bottom: 20px;
+            left: 5%;
+            width: 90%;
+            text-align: center;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            display: none;
+            z-index: 15;
+            box-sizing: border-box;
+        }
         #start-overlay {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -204,6 +219,7 @@
     <div id="avatar-area">
         <img id="poster" src="static/poster_idle.jpg" alt="AI阪口源太" class="active">
         <video id="avatar-video" playsinline></video>
+        <div id="response-text"></div>
         
         <!-- Start Overlay -->
         <div id="start-overlay">
@@ -232,6 +248,7 @@
     const sendBtn = document.getElementById('send-btn');
     const poster = document.getElementById('poster');
     const video = document.getElementById('avatar-video');
+    const responseTextDiv = document.getElementById('response-text');
     
     // Audio context initialization
     let audioContext;
@@ -295,11 +312,15 @@
             
             // 音声の再生が完了したら待機状態（アイドル）に戻す
             source.onended = () => {
+                video.loop = false; // 強制的にループ解除
                 switchVideo("idle_blink.webm", true);
+                if(responseTextDiv) responseTextDiv.style.display = 'none';
             };
         } catch (e) {
             console.error("Audio playback error:", e);
+            video.loop = false;
             switchVideo("idle_blink.webm", true);
+            if(responseTextDiv) responseTextDiv.style.display = 'none';
         }
     }
 
@@ -331,6 +352,10 @@
                     if (em.includes("idle")) vid = "idle_blink.webm";
                     else if (em.includes("strong")) vid = "talking_strong.webm";
                     
+                    if(responseTextDiv) {
+                        responseTextDiv.innerText = data.response_text || "与那国町議会議員の阪口源太です。ご質問をお待ちしております。";
+                        responseTextDiv.style.display = 'block';
+                    }
                     appendMessage("assistant", data.response_text || "与那国町議会議員の阪口源太です。ご質問をお待ちしております。");
                     if (data.audio_b64) {
                         switchVideo(vid, true); // 音声同期のためloopをtrueに
@@ -387,6 +412,10 @@
             if (match && match[1]) {
                 const data = JSON.parse(match[1]);
                 if (data.status === "success") {
+                    if(responseTextDiv) {
+                        responseTextDiv.innerText = data.response_text;
+                        responseTextDiv.style.display = 'block';
+                    }
                     appendMessage("assistant", data.response_text);
                     if (data.audio_b64) {
                         switchVideo(data.video_filename || "talking_normal.webm", true); // 音声が終わるまでループ
@@ -396,6 +425,7 @@
                     }
                 } else {
                     appendMessage("system", "処理エラー: " + data.message);
+                    video.loop = false;
                     switchVideo("idle_blink.webm", true);
                 }
             } else {
