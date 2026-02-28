@@ -294,14 +294,11 @@ def main():
     # --- Avatar Area (top) ---
     avatar_container = st.empty()
 
-    # 🚀 ポーリング→結果発見→即座にst.rerun()で画面を更新
-    got_result = poll_results(avatar_container, sid)
+    # ポーリング → 結果をsession_stateに反映
+    poll_results(avatar_container, sid)
 
+    # render_avatarは常に最新のsession_stateで描画 (追加のst.rerun()は不要)
     render_avatar(avatar_container, sid)
-    
-    # 🚀 結果が見つかった場合、即座に再描画して最新のアバター状態を反映
-    if got_result:
-        st.rerun()
 
     # --- Input Area (Fragmented) ---
     @st.fragment
