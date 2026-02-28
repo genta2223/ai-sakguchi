@@ -64,6 +64,7 @@ if "GOOGLE_API_KEY" in st.secrets:
 # find_in_cache function # Moved inside main()
 
 def main():
+    # === 1. 挨拶を最速で実行 ===
     st.title("AI阪口源太")
     st.markdown("---")
     
@@ -72,62 +73,68 @@ def main():
         st.session_state.messages = []
         
     if "current_video" not in st.session_state:
-        # 初期状態は待機動画
         st.session_state.current_video = "idle_blink.webm"
 
-    # === Initial Greeting Logic (Restored from Backup) ===
-    if "has_greeted" not in st.session_state:
-        st.session_state.has_greeted = True
-        
-        # Try to load the greeting cache from disk
-        greeting_data = None
-        try:
-            import json
-            cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
-            if cache_file.exists():
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    greeting_data = json.load(f)
-        except Exception as e:
-            pass
-            
-        if greeting_data:
-            audio_b64 = greeting_data.get("audio_b64", "")
-            audio_bytes = None
-            if audio_b64:
-                import base64
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                except:
-                    pass
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": greeting_data.get("response_text", "与那国町議会議員の阪口源太です。ご質問をお待ちしております。"),
-                "audio_bytes": audio_bytes
-            })
-            
-            # Set initial video based on emotion
-            emotion = str(greeting_data.get("emotion", "normal")).lower()
-            video_filename = "talking_normal.webm"
-            if "idle" in emotion: video_filename = "idle_blink.webm"
-            elif "strong" in emotion: video_filename = "talking_strong.webm"
-            elif "wait" in emotion: video_filename = "talking_wait.webm"
-            st.session_state.current_video = video_filename
-
-    # from core_paths import LOCAL_STATIC_DIR # Already imported at top, but keeping for context of the instruction
+    from core_paths import LOCAL_STATIC_DIR
     init_video_path = str(LOCAL_STATIC_DIR / st.session_state.current_video)
-    
-    # --- アバターの初期描画 (重い処理の前に即時描画) ---
+
+    # アバター動画を直ちに表示
     avatar_container = st.empty()
     with avatar_container:
         if os.path.exists(init_video_path):
             st.video(init_video_path, autoplay=True, loop=True)
         else:
-            # 動画がない場合のフォールバック画像
             poster_path = str(LOCAL_STATIC_DIR / "poster_idle.jpg")
             if os.path.exists(poster_path):
                 st.image(poster_path, use_container_width=True)
             else:
                 st.info("アバター読み込み中...")
+
+    # === 2. キャッシュデータの安全な読み込みと挨拶表示 ===
+    if "has_greeted" not in st.session_state:
+        st.session_state.has_greeted = True
+        
+        greeting_text = "与那国町議会議員の阪口源太です。ご質問をお待ちしております。" # 確実なフォールバック
+        audio_bytes = None
+        
+        try:
+            import json
+            import base64
+            cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
+            if cache_file.exists():
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    greeting_data = json.load(f)
+                    if isinstance(greeting_data, dict):
+                        if "response_text" in greeting_data:
+                            greeting_text = str(greeting_data["response_text"])
+                        
+                        audio_b64 = greeting_data.get("audio_b64", "")
+                        if audio_b64:
+                            try:
+                                audio_bytes = base64.b64decode(audio_b64)
+                            except:
+                                pass
+                        
+                        emotion = str(greeting_data.get("emotion", "normal")).lower()
+                        video_filename = "talking_normal.webm"
+                        if "idle" in emotion: video_filename = "idle_blink.webm"
+                        elif "strong" in emotion: video_filename = "talking_strong.webm"
+                        elif "wait" in emotion: video_filename = "talking_wait.webm"
+                        st.session_state.current_video = video_filename
+        except Exception:
+            pass
+            
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": greeting_text,
+            "audio_bytes": audio_bytes
+        })
+        
+        # 動画パスが更新されたら再描画
+        new_video_path = str(LOCAL_STATIC_DIR / st.session_state.current_video)
+        if init_video_path != new_video_path and os.path.exists(new_video_path):
+            with avatar_container:
+                st.video(new_video_path, autoplay=True, loop=True)
 
     # 履歴の表示
     for msg in st.session_state.messages:
@@ -136,6 +143,7 @@ def main():
             if msg.get("audio_bytes"):
                 st.audio(msg["audio_bytes"], format="audio/mp3", autoplay=True)
 
+    # 入力受付
     user_input = st.chat_input("💬 質問を入力してください (例: 与那国島の未来について)")
 
     if user_input:
@@ -146,7 +154,7 @@ def main():
             
         with st.chat_message("assistant"):
             with st.spinner("考え中..."):
-                # ここで初めて重いモジュールをロード＆処理
+                # === 3. インポートの完全な遅延ロード ===
                 import json
                 import logging
                 import base64
