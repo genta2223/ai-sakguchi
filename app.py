@@ -25,7 +25,6 @@ import uuid
 from queue import Queue, Empty
 
 from streamlit_autorefresh import st_autorefresh
-import shutil
 
 from youtube_monitor import ChatItem, start_youtube_monitor
 
@@ -97,11 +96,8 @@ if "last_proc_start" not in st.session_state:
 if "progress_msg" not in st.session_state:
     st.session_state.progress_msg = "Ready"
 
-if "current_audio" not in st.session_state:
-    st.session_state.current_audio = None  # {audio_b64, emotion, response_text}
-
 if "history" not in st.session_state:
-    st.session_state.history = []  # List of (question, response, emotion)
+    st.session_state.history = []
 
 if "yt_thread" not in st.session_state:
     st.session_state.yt_thread = None
@@ -113,15 +109,6 @@ if "output_queue" not in st.session_state:
 if "worker_thread" not in st.session_state:
     st.session_state.worker_thread = None
     st.session_state.worker_stop = None
-
-if "has_greeted" not in st.session_state:
-    st.session_state.has_greeted = False
-
-if "avatar_placeholder" not in st.session_state:
-    st.session_state.avatar_placeholder = None
-
-if "started" not in st.session_state:
-    st.session_state.started = False
 
 if "current_avatar_task" not in st.session_state:
     st.session_state.current_avatar_task = None
@@ -141,21 +128,6 @@ def init_youtube_monitor():
         st.session_state.yt_stop = stop_event
         logger.info("[App] YouTube monitor started.")
 
-
-# ============================================================
-# Startup Greeting
-# ============================================================
-def queue_startup_greeting():
-    """Queue the opening message on first run."""
-    if not st.session_state.has_greeted:
-        st.session_state.has_greeted = True
-        logger.info("[App] Queuing startup greeting.")
-        item = ChatItem(
-            message_text="（System: 配信開始の挨拶をしてください。「与那国町議会議員の阪口源太です。町民のみなさんのご質問にお答えします」と言ってください）",
-            author_name="System",
-            source="system",
-        )
-        st.session_state.queue.put(item)
 
 
 # ============================================================
@@ -236,12 +208,13 @@ def render_avatar(placeholder, session_id: str):
             # 2. 🚀 現在のタスクデータを取得 (audio_b64含むフルデータ)
             task_data = st.session_state.get("current_avatar_task")
             
-            # 3. 🚀 データをHTMLに注入
+            # 3. 🚀 データをHTMLに注入 (★ busterはtask_idで固定し、タスクが変わった時だけiframeを再生成)
+            task_id = task_data.get("task_id", "idle") if task_data else "idle"
             app_data_json = json.dumps({
                 "video_urls": video_urls,
                 "task": task_data,
                 "sid": session_id,
-                "buster": time.time()
+                "buster": task_id
             })
             
             injection = f"""
@@ -262,99 +235,9 @@ def render_avatar(placeholder, session_id: str):
             st.error(f"Render Error: {e}")
 
 
-# ============================================================
-# Main UI Layout
-# ============================================================
-# def ensure_static_deployment():
-#     """Wrapper for PathManager's safe deployment."""
-#     return PathManager.get_internal_static() or LOCAL_STATIC_DIR
-
-def cleanup_stale_tasks():
-    """Remove session task files older than 1 hour from Local Static."""
-    try:
-        now = time.time()
-        for f in LOCAL_STATIC_DIR.glob("task_*.json"):
-            if now - f.stat().st_mtime > 3600:
-                f.unlink()
-                logger.info(f"[Cleanup] Removed stale task file: {f.name}")
-    except Exception as e:
-        logger.warning(f"[Cleanup] Failed: {e}")
-
-# load_all_caches function # Moved inside main()
-# find_in_cache function # Moved inside main()
-
-# ============================================================
-# API Endpoint Mode (Vercel Backend Hack)
-# ============================================================
-api_query = st.query_params.get("api_query")
-if api_query:
-    import json
-    import base64
-    from core_ai_worker import normalize_text, generate_response
-    from tts import synthesize_speech
-    
-    # Simple caching layer copy for the API
-    cache_combined = []
-    try:
-        if (LOCAL_STATIC_DIR / "faq_cache.json").exists():
-            with open(LOCAL_STATIC_DIR / "faq_cache.json", "r", encoding="utf-8") as f:
-                d = json.load(f)
-                if isinstance(d, list): cache_combined.extend(d)
-        if (LOCAL_STATIC_DIR / "extra_cache.json").exists():
-            with open(LOCAL_STATIC_DIR / "extra_cache.json", "r", encoding="utf-8") as f:
-                d_ext = json.load(f)
-                if isinstance(d_ext, list): cache_combined.extend(d_ext)
-    except:
-        pass
-
-    match = None
-    norm_q = normalize_text(api_query)
-    for item in cache_combined:
-        try:
-            if "question" in item and "response_text" in item:
-                if normalize_text(str(item["question"])) == norm_q:
-                    match = item
-                    break
-        except:
-            pass
-
-    try:
-        if match:
-            response_text = str(match["response_text"])
-            emotion = str(match.get("emotion", "normal")).lower()
-            audio_b64 = match.get("audio_b64", "")
-        else:
-            api_key = st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GOOGLE_API_KEY") or ""
-            c_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON") or ""
-            p_key = st.secrets.get("GCP_PRIVATE_KEY") or ""
-            c_email = st.secrets.get("GCP_CLIENT_EMAIL") or ""
-            
-            response_text, emotion = generate_response(api_query, api_key=api_key, use_cache=False)
-            audio_b64 = synthesize_speech(response_text, creds_json=c_json, private_key=p_key, client_email=c_email, use_cache=False)
-            
-        emotion = emotion.lower()
-        video_filename = "talking_normal.webm"
-        if "idle" in emotion: video_filename = "idle_blink.webm"
-        elif "strong" in emotion: video_filename = "talking_strong.webm"
-        elif "wait" in emotion: video_filename = "talking_wait.webm"
-        
-        output = {
-            "status": "success",
-            "response_text": response_text,
-            "emotion": emotion,
-            "video_filename": video_filename,
-            "audio_b64": audio_b64
-        }
-    except Exception as e:
-        output = {"status": "error", "message": str(e)}
-
-    # Send data marked clearly for the JavaScript regex extractor, skipping frontend render
-    st.write(f"[[V_API_START]]{json.dumps(output)}[[V_API_END]]")
-    st.stop()
-
 
 def main():
-    logger.info(f"[App] Starting AI Avatar App (Multi-User v19.2)")
+    logger.info(f"[App] Starting AI Avatar App (v20.0 Stable)")
     
     # Initialize Session ID
     if "session_id" not in st.session_state:
@@ -362,17 +245,9 @@ def main():
     
     sid = st.session_state.session_id
 
-    # Periodic Cleanup
-    if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 600:
-        cleanup_stale_tasks()
-        st.session_state.last_cleanup = time.time()
-
-    # 🚀 Ghost Cleaning is now disabled in favor of In-Memory Media Injection
     if "deployment_done" not in st.session_state:
-        # We still call it but it now just returns the local path as a dummy
         PathManager.ensure_safe_deployment()
         st.session_state.deployment_done = True
-        logger.info(f"[App] In-memory mode active (Filesystem reset skipped)")
 
     # 🚀 動的ポーリング: 処理中は2秒間隔で画面更新、アイドル時は60秒
     refresh_interval = 2000 if st.session_state.get("processing", False) else 60000
@@ -427,9 +302,6 @@ def main():
     # 🚀 結果が見つかった場合、即座に再描画して最新のアバター状態を反映
     if got_result:
         st.rerun()
-    
-    # Mark as started so subsequent reruns (heartbeat or full) include the flag
-    st.session_state.started = True
 
     # --- Input Area (Fragmented) ---
     @st.fragment
@@ -473,9 +345,7 @@ def main():
         st.info(f"AI阪口源太が考え中... ({st.session_state.progress_msg})")
         if st.button("強制リセット (停止した場合)", key="history_force_reset"):
             st.session_state.processing = False
-            st.session_state.current_audio = None
             st.session_state.progress_msg = "Reset"
-            st.session_state.started = False
             st.session_state.queue = Queue()
             st.session_state.output_queue = Queue()
             st.toast("処理をリセットしました")
