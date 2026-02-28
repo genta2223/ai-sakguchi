@@ -74,15 +74,35 @@ def main():
         
     if "current_video" not in st.session_state:
         st.session_state.current_video = "idle_blink.webm"
+        
+    if "app_started" not in st.session_state:
+        st.session_state.app_started = False
 
     from core_paths import LOCAL_STATIC_DIR
+
+    # 起動ボタンの設置 (ブラウザの音声自動再生ブロックを解除するため)
+    if not st.session_state.app_started:
+        st.info("ブラウザの音声再生を許可するため、以下のボタンで起動してください。")
+        if st.button("🚀 AI源太を起動する", use_container_width=True):
+            st.session_state.app_started = True
+            st.rerun()
+        
+        # 起動前は待機看板だけ出しておく
+        poster_path = str(LOCAL_STATIC_DIR / "poster_idle.jpg")
+        if os.path.exists(poster_path):
+            st.image(poster_path, use_container_width=True)
+        return  # 押されるまではここで描画ストップ
+
+    # === プログラム起動後 ===
     init_video_path = str(LOCAL_STATIC_DIR / st.session_state.current_video)
 
     # アバター動画を直ちに表示
     avatar_container = st.empty()
+    status_container = st.empty()
+    
     with avatar_container:
         if os.path.exists(init_video_path):
-            st.video(init_video_path, autoplay=True, loop=True)
+            st.video(init_video_path, autoplay=True, loop=True, muted=False)
         else:
             poster_path = str(LOCAL_STATIC_DIR / "poster_idle.jpg")
             if os.path.exists(poster_path):
@@ -92,6 +112,7 @@ def main():
 
     # === 2. キャッシュデータの安全な読み込みと挨拶表示 ===
     if "has_greeted" not in st.session_state:
+        status_container.caption("⏳ 挨拶データを読み込み中...")
         st.session_state.has_greeted = True
         
         greeting_text = "与那国町議会議員の阪口源太です。ご質問をお待ちしております。" # 確実なフォールバック
@@ -112,6 +133,7 @@ def main():
                         if audio_b64:
                             try:
                                 audio_bytes = base64.b64decode(audio_b64)
+                                status_container.caption("✅ 挨拶と音声の準備が完了しました")
                             except:
                                 pass
                         
@@ -122,7 +144,7 @@ def main():
                         elif "wait" in emotion: video_filename = "talking_wait.webm"
                         st.session_state.current_video = video_filename
         except Exception:
-            pass
+            status_container.caption("⚠️ キャッシュ読み込みに失敗。標準挨拶を使用します。")
             
         st.session_state.messages.append({
             "role": "assistant",
@@ -134,7 +156,10 @@ def main():
         new_video_path = str(LOCAL_STATIC_DIR / st.session_state.current_video)
         if init_video_path != new_video_path and os.path.exists(new_video_path):
             with avatar_container:
-                st.video(new_video_path, autoplay=True, loop=True)
+                st.video(new_video_path, autoplay=True, loop=True, muted=False)
+                
+        # 進行完了でステータスを消す
+        status_container.empty()
 
     # 履歴の表示
     for msg in st.session_state.messages:
@@ -154,6 +179,7 @@ def main():
             
         with st.chat_message("assistant"):
             with st.spinner("考え中..."):
+                status_container.caption("🧠 AIモジュールを起動中...")
                 # === 3. インポートの完全な遅延ロード ===
                 import json
                 import logging
