@@ -174,7 +174,7 @@ def poll_results(placeholder, session_id: str):
                 text_hash = hashlib.md5(res["response_text"].encode("utf-8")).hexdigest()[:8]
                 task_id = f"{time.time()}_{text_hash}"
 
-                task_data = {
+                task_data_full = {
                     "task_id": task_id,
                     "audio_b64": res["audio_b64"],
                     "emotion": res["emotion"],
@@ -182,19 +182,34 @@ def poll_results(placeholder, session_id: str):
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
                 
-                # 🚀 In-Memory State: Store directly in session state instead of writing to file
-                st.session_state.current_avatar_task = task_data
-                logger.info(f"[App] Updated in-memory task: {task_id}")
+                # 🚀 物理ファイルへフルデータを保存 (フロントのJSが非同期でフェッチする)
+                try:
+                    task_file = LOCAL_STATIC_DIR / f"task_{task_id}.json"
+                    with open(task_file, "w", encoding="utf-8") as f:
+                        json.dump(task_data_full, f, ensure_ascii=False)
+                except Exception as e:
+                    logger.warning(f"[App] Failed to write heavy task file: {e}")
+
+                # 🚀 Streamlitのsession_stateには軽量な参照(ID)だけを渡す -> これにより描画ラグ(20秒)が完全に消滅
+                task_data_light = {
+                    "task_id": task_id,
+                    "emotion": res["emotion"],
+                    "response_text": res["response_text"],
+                    "is_initial_greeting": res.get("is_initial_greeting", False)
+                }
+                
+                st.session_state.current_avatar_task = task_data_light
+                logger.info(f"[App] Updated light in-memory task: {task_id}")
                 
                 if res.get("is_initial_greeting"):
                     # Cache greeting task data in session state for other users/sessions if needed,
-                    st.session_state.greeting_task_cache = task_data
+                    st.session_state.greeting_task_cache = task_data_full
                     
                     # 🚀 物理ファイルにも永続保存 (再起動後の爆速起動のため)
                     try:
                         cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
                         with open(cache_file, "w", encoding="utf-8") as f:
-                            json.dump(task_data, f, ensure_ascii=False, indent=2)
+                            json.dump(task_data_full, f, ensure_ascii=False, indent=2)
                         logger.info(f"[Cache] Saved initial greeting to physical file: {cache_file.name}")
                     except Exception as e:
                         logger.warning(f"[Cache] Failed to save to physical file: {e}")
@@ -434,23 +449,29 @@ def main():
     def chat_area():
         if not is_embed:
             st.markdown("---")
-            user_input = st.chat_input("💬 質問を入力 (例: 与那国島の未来について教えてください...)")
+            if st.session_state.get("processing", False):
+                st.chat_input("💭 質問を入力 (今は考え中です...)", disabled=True)
+            else:
+                user_input = st.chat_input("💬 質問を入力 (例: 与那国島の未来について教えてください...)")
 
-            if user_input:
-                logger.info(f"[Input] User submitted: {user_input[:20]}")
-                
-                # 🚀 考え中フラグを即座にセット (JS側で talking_wait.webm を再生させる)
-                st.session_state.current_avatar_task = {"task_id": "waiting", "audio_b64": None}
-                logger.info(f"[Input] Set 'waiting' state for avatar.")
+                if user_input:
+                    logger.info(f"[Input] User submitted: {user_input[:20]}")
+                    
+                    # 🚀 連続送信防ぐため即座にprocessingをTrueにし、ロック
+                    st.session_state.processing = True
+                    
+                    # 🚀 考え中フラグを即座にセット (JS側で talking_wait.webm を再生させる)
+                    st.session_state.current_avatar_task = {"task_id": "waiting", "audio_b64": None}
+                    logger.info(f"[Input] Set 'waiting' state for avatar.")
 
-                item = ChatItem(
-                    message_text=user_input,
-                    author_name="町民",
-                    source="direct",
-                )
-                st.session_state.queue.put(item)
-                st.toast("質問を受け付けました。順番に回答します。")
-                st.rerun()
+                    item = ChatItem(
+                        message_text=user_input,
+                        author_name="町民",
+                        source="direct",
+                    )
+                    st.session_state.queue.put(item)
+                    st.toast("質問を受け付けました。順番に回答します。")
+                    st.rerun()
 
     chat_area()
 
