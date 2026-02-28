@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/chat",
+      "destination": "https://ai-sakguchi.streamlit.app/"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    }
+  ]
+}
