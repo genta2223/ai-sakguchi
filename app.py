@@ -94,6 +94,8 @@ def main():
         return  # 押されるまではここで描画ストップ
 
     # === プログラム起動後 ===
+    # 再実行時に過去の動画が勝手にループ再生してしまうのを防ぐため、必ず待機状態にリセット
+    st.session_state.current_video = "idle_blink.webm"
     init_video_path = str(LOCAL_STATIC_DIR / st.session_state.current_video)
 
     # アバター動画を直ちに表示
@@ -101,14 +103,14 @@ def main():
     status_container = st.empty()
     
     with avatar_container:
-        if os.path.exists(init_video_path):
+        poster_path = str(LOCAL_STATIC_DIR / "poster_idle.jpg")
+        if os.path.exists(poster_path):
+            # 初期待機時は18KBの軽量な看板画像を出し、無駄な通信とループを防ぐ
+            st.image(poster_path, use_container_width=True)
+        elif os.path.exists(init_video_path):
             st.video(init_video_path, autoplay=True, loop=True, muted=False)
         else:
-            poster_path = str(LOCAL_STATIC_DIR / "poster_idle.jpg")
-            if os.path.exists(poster_path):
-                st.image(poster_path, use_container_width=True)
-            else:
-                st.info("アバター読み込み中...")
+            st.info("アバター読み込み中...")
 
     # === 2. キャッシュデータの安全な読み込みと挨拶表示 ===
     if "has_greeted" not in st.session_state:
@@ -156,7 +158,8 @@ def main():
         new_video_path = str(LOCAL_STATIC_DIR / st.session_state.current_video)
         if init_video_path != new_video_path and os.path.exists(new_video_path):
             with avatar_container:
-                st.video(new_video_path, autoplay=True, loop=True, muted=False)
+                # 挨拶動画: loop=False にして話し終わったら静止させる
+                st.video(new_video_path, autoplay=True, loop=False, muted=False)
                 
         # 進行完了でステータスを消す
         status_container.empty()
@@ -259,7 +262,8 @@ def main():
                     
                     with avatar_container:
                         if os.path.exists(video_path):
-                            st.video(video_path, autoplay=True, loop=True)
+                            # 回答動画: loop=False を徹底して話し終わったらピタッと止める
+                            st.video(video_path, autoplay=True, loop=False, muted=False)
                         else:
                             poster_path = str(LOCAL_STATIC_DIR / "poster_idle.jpg")
                             if os.path.exists(poster_path):
