@@ -140,7 +140,7 @@ def _worker_loop(input_queue: Queue, output_queue: Queue, stop_event: threading.
                             except Exception as embed_e:
                                 logger.warning(f"[Worker] Embedding check failed during vector calculation: {embed_e}")
                         
-                        if max_sim >= 0.75 and best_idx != -1:
+                        if max_sim >= 0.81 and best_idx != -1:
                             cached_ans = FAQ_CACHE[best_idx].get("response_text", "")
                             rejection_phrases = ["答えられません", "学習中", "エラー", "申し訳ありません"]
                             is_rejected = any(rp in cached_ans for rp in rejection_phrases)
