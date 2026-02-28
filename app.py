@@ -24,6 +24,7 @@ import hashlib
 import uuid
 import smtplib
 from email.mime.text import MIMEText
+from email.header import Header
 from queue import Queue, Empty
 
 from streamlit_autorefresh import st_autorefresh
@@ -431,7 +432,7 @@ def send_direct_message(reply_email: str, user_message: str) -> bool:
         )
 
         msg = MIMEText(body, "plain", "utf-8")
-        msg["Subject"] = "【町民より】AIアバター経由での直接質問"
+        msg["Subject"] = Header("【町民より】AIアバター経由での直接質問", "utf-8")
         msg["From"] = gmail_user
         msg["To"] = target_email
 
