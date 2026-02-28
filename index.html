@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI阪口源太 - 与那国町議会議員</title>
+    <style>
+        :root {
+            --primary: #0052cc;
+            --bg-color: #f0f2f5;
+            --chat-bg: #ffffff;
+            --text-dark: #333333;
+            --text-light: #ffffff;
+        }
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        header {
+            background-color: var(--primary);
+            color: var(--text-light);
+            padding: 1rem;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+            background: var(--chat-bg);
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+            position: relative;
+        }
+        #avatar-area {
+            width: 100%;
+            background: #000;
+            position: relative;
+            min-height: 250px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        #avatar-area img, #avatar-area video {
+            width: 100%;
+            height: auto;
+            max-height: 40vh;
+            object-fit: contain;
+            display: none;
+        }
+        #avatar-area img.active, #avatar-area video.active {
+            display: block;
+        }
+        #start-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+        #start-btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: transform 0.2s, background 0.2s;
+        }
+        #start-btn:hover {
+            transform: scale(1.05);
+            background-color: #0043a8;
+        }
+        #start-overlay p {
+            color: white;
+            margin-top: 15px;
+            font-size: 0.9rem;
+        }
+        #chat-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            background-color: var(--bg-color);
+            position: relative;
+        }
+        .message {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message.user {
+            background-color: var(--primary);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+        .message.assistant {
+            background-color: white;
+            color: var(--text-dark);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .message.system {
+            background-color: transparent;
+            color: #666;
+            align-self: center;
+            font-size: 0.85em;
+            text-align: center;
+            box-shadow: none;
+        }
+        #input-area {
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #ddd;
+            display: flex;
+            gap: 10px;
+        }
+        #chat-input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 25px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #chat-input:focus {
+            border-color: var(--primary);
+        }
+        #send-btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            width: 50px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        #send-btn:hover {
+            background-color: #0043a8;
+        }
+        #send-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        /* Loader */
+        .dots {
+            display: inline-flex;
+            gap: 4px;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: #999;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+<header>AI阪口源太</header>
+
+<div id="main-container">
+    <!-- Avatar Display Area -->
+    <div id="avatar-area">
+        <img id="poster" src="static/poster_idle.jpg" alt="AI阪口源太" class="active">
+        <video id="avatar-video" playsinline></video>
+        
+        <!-- Start Overlay -->
+        <div id="start-overlay">
+            <button id="start-btn">🚀 AI源太を起動する</button>
+            <p>※ブラウザの音声再生を許可するためにタップしてください</p>
+        </div>
+    </div>
+
+    <!-- Chat History -->
+    <div id="chat-area">
+        <div class="message system">AI源太とのセッションが開始しました</div>
+    </div>
+
+    <!-- Input Area -->
+    <div id="input-area">
+        <input type="text" id="chat-input" placeholder="💬 質問を入力してください (例: 与那国島の未来について)" disabled>
+        <button id="send-btn" disabled>➤</button>
+    </div>
+</div>
+
+<script>
+    const startOverlay = document.getElementById('start-overlay');
+    const startBtn = document.getElementById('start-btn');
+    const chatArea = document.getElementById('chat-area');
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    const poster = document.getElementById('poster');
+    const video = document.getElementById('avatar-video');
+    
+    // Audio context initialization
+    let audioContext;
+    let currentAudioContext = null;
+    let isProcessing = false;
+
+    // Streamlit API URL configuration
+    // Use proxy relative path if on Vercel, or direct hostname locally for testing
+    const API_URL = window.location.hostname.includes("vercel.app") 
+        ? "/api/chat?api_query=" 
+        : "https://ai-sakguchi.streamlit.app/?api_query=";
+
+    function initAudio() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+    }
+
+    function switchVideo(filename, loop=false) {
+        poster.classList.remove('active');
+        video.classList.add('active');
+        video.src = "static/" + filename;
+        video.loop = loop;
+        video.muted = true; // Video tracks don't contain audio, audio is separate
+        video.play().catch(e => console.error("Video play error:", e));
+        
+        // When video ends, and it's not looping, fall back to poster or idle video
+        video.onended = () => {
+            if (!loop) {
+                switchVideo("idle_blink.webm", true);
+            }
+        };
+    }
+
+    async function playAudioBase64(b64) {
+        if (!b64 || !audioContext) return;
+        
+        try {
+            // Stop previous audio
+            if (currentAudioContext) {
+                currentAudioContext.stop();
+                currentAudioContext = null;
+            }
+            
+            const binaryString = window.atob(b64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.start(0);
+            currentAudioContext = source;
+        } catch (e) {
+            console.error("Audio playback error:", e);
+        }
+    }
+
+    function appendMessage(role, text) {
+        const div = document.createElement('div');
+        div.className = 'message ' + role;
+        div.innerText = text;
+        chatArea.appendChild(div);
+        chatArea.scrollTop = chatArea.scrollHeight;
+        return div;
+    }
+
+    function showLoading() {
+        const div = document.createElement('div');
+        div.className = 'message assistant loading-indicator';
+        div.innerHTML = '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+        chatArea.appendChild(div);
+        chatArea.scrollTop = chatArea.scrollHeight;
+        return div;
+    }
+
+    async function loadGreeting() {
+        try {
+            const res = await fetch("static/greeting_cache.json");
+            if (res.ok) {
+                const data = await res.json();
+                let vid = "talking_normal.webm";
+                const em = (data.emotion || "normal").toLowerCase();
+                if (em.includes("idle")) vid = "idle_blink.webm";
+                else if (em.includes("strong")) vid = "talking_strong.webm";
+                
+                switchVideo(vid, false);
+                appendMessage("assistant", data.response_text || "与那国町議会議員の阪口源太です。ご質問をお待ちしております。");
+                if (data.audio_b64) {
+                    playAudioBase64(data.audio_b64);
+                }
+            } else {
+                throw new Error("No cache");
+            }
+        } catch(e) {
+            console.log("Greeting cache load failed, using fallback:", e);
+            switchVideo("idle_blink.webm", true);
+            appendMessage("assistant", "与那国町議会議員の阪口源太です。ご質問をお待ちしております。");
+        }
+        
+        chatInput.disabled = false;
+        sendBtn.disabled = false;
+        chatInput.focus();
+    }
+
+    startBtn.addEventListener('click', () => {
+        initAudio(); // Unlock audio context
+        startOverlay.style.display = 'none';
+        loadGreeting();
+    });
+
+    async function sendMessage() {
+        const text = chatInput.value.trim();
+        if (!text || isProcessing) return;
+        
+        chatInput.value = '';
+        isProcessing = true;
+        chatInput.disabled = true;
+        sendBtn.disabled = true;
+        
+        appendMessage("user", text);
+        const loadingDiv = showLoading();
+        switchVideo("talking_wait.webm", true); // Thinking animation
+        
+        try {
+            const targetUrl = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
+                ? "https://ai-sakguchi.streamlit.app/?api_query=" + encodeURIComponent(text)
+                : "/api/chat?api_query=" + encodeURIComponent(text); // Use Vercel rewrite route
+
+            // Use our Vercel reverse proxy to bypass Streamlit CORS!
+            const response = await fetch(targetUrl);
+            const htmlText = await response.text();
+            
+            // Extract the special JSON payload from Streamlit's HTML response
+            const match = htmlText.match(/\[\[V_API_START\]\](.*?)\[\[V_API_END\]\]/);
+            loadingDiv.remove();
+            
+            if (match && match[1]) {
+                const data = JSON.parse(match[1]);
+                if (data.status === "success") {
+                    switchVideo(data.video_filename || "talking_normal.webm", false);
+                    appendMessage("assistant", data.response_text);
+                    if (data.audio_b64) {
+                        playAudioBase64(data.audio_b64);
+                    }
+                } else {
+                    appendMessage("system", "処理エラー: " + data.message);
+                    switchVideo("idle_blink.webm", true);
+                }
+            } else {
+                appendMessage("system", "バックエンド(Streamlit)との通信がタイムアウト、または不正な応答を受信しました。もう一度お試しください。");
+                switchVideo("idle_blink.webm", true);
+                console.error("Raw response snippet:", htmlText.substring(0, 500));
+            }
+        } catch(e) {
+            loadingDiv.remove();
+            appendMessage("system", "通信エラーが発生しました: " + e.message);
+            switchVideo("idle_blink.webm", true);
+            console.error("Fetch error:", e);
+        } finally {
+            isProcessing = false;
+            chatInput.disabled = false;
+            sendBtn.disabled = false;
+            chatInput.focus();
+        }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+
+</script>
+</body>
+</html>

@@ -283,6 +283,79 @@ def cleanup_stale_tasks():
     except Exception as e:
         logger.warning(f"[Cleanup] Failed: {e}")
 
+# load_all_caches function # Moved inside main()
+# find_in_cache function # Moved inside main()
+
+# ============================================================
+# API Endpoint Mode (Vercel Backend Hack)
+# ============================================================
+api_query = st.query_params.get("api_query")
+if api_query:
+    import json
+    import base64
+    from core_ai_worker import normalize_text, generate_response
+    from tts import synthesize_speech
+    
+    # Simple caching layer copy for the API
+    cache_combined = []
+    try:
+        if (LOCAL_STATIC_DIR / "faq_cache.json").exists():
+            with open(LOCAL_STATIC_DIR / "faq_cache.json", "r", encoding="utf-8") as f:
+                d = json.load(f)
+                if isinstance(d, list): cache_combined.extend(d)
+        if (LOCAL_STATIC_DIR / "extra_cache.json").exists():
+            with open(LOCAL_STATIC_DIR / "extra_cache.json", "r", encoding="utf-8") as f:
+                d_ext = json.load(f)
+                if isinstance(d_ext, list): cache_combined.extend(d_ext)
+    except:
+        pass
+
+    match = None
+    norm_q = normalize_text(api_query)
+    for item in cache_combined:
+        try:
+            if "question" in item and "response_text" in item:
+                if normalize_text(str(item["question"])) == norm_q:
+                    match = item
+                    break
+        except:
+            pass
+
+    try:
+        if match:
+            response_text = str(match["response_text"])
+            emotion = str(match.get("emotion", "normal")).lower()
+            audio_b64 = match.get("audio_b64", "")
+        else:
+            api_key = st.secrets.get("FINAL_MASTER_KEY") or st.secrets.get("GOOGLE_API_KEY") or ""
+            c_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON") or ""
+            p_key = st.secrets.get("GCP_PRIVATE_KEY") or ""
+            c_email = st.secrets.get("GCP_CLIENT_EMAIL") or ""
+            
+            response_text, emotion = generate_response(api_query, api_key=api_key, use_cache=False)
+            audio_b64 = synthesize_speech(response_text, creds_json=c_json, private_key=p_key, client_email=c_email, use_cache=False)
+            
+        emotion = emotion.lower()
+        video_filename = "talking_normal.webm"
+        if "idle" in emotion: video_filename = "idle_blink.webm"
+        elif "strong" in emotion: video_filename = "talking_strong.webm"
+        elif "wait" in emotion: video_filename = "talking_wait.webm"
+        
+        output = {
+            "status": "success",
+            "response_text": response_text,
+            "emotion": emotion,
+            "video_filename": video_filename,
+            "audio_b64": audio_b64
+        }
+    except Exception as e:
+        output = {"status": "error", "message": str(e)}
+
+    # Send data marked clearly for the JavaScript regex extractor, skipping frontend render
+    st.write(f"[[V_API_START]]{json.dumps(output)}[[V_API_END]]")
+    st.stop()
+
+
 def main():
     logger.info(f"[App] Starting AI Avatar App (Multi-User v19.2)")
     
