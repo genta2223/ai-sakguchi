@@ -175,7 +175,7 @@ def poll_results(placeholder, session_id: str) -> bool:
                 text_hash = hashlib.md5(res["response_text"].encode("utf-8")).hexdigest()[:8]
                 task_id = f"{time.time()}_{text_hash}"
 
-                task_data_full = {
+                task_data = {
                     "task_id": task_id,
                     "audio_b64": res["audio_b64"],
                     "emotion": res["emotion"],
@@ -183,31 +183,16 @@ def poll_results(placeholder, session_id: str) -> bool:
                     "is_initial_greeting": res.get("is_initial_greeting", False)
                 }
                 
-                # 🚀 物理ファイルへフルデータを保存 (フロントのJSが非同期でフェッチする)
-                try:
-                    task_file = LOCAL_STATIC_DIR / f"task_{task_id}.json"
-                    with open(task_file, "w", encoding="utf-8") as f:
-                        json.dump(task_data_full, f, ensure_ascii=False)
-                except Exception as e:
-                    logger.warning(f"[App] Failed to write heavy task file: {e}")
-
-                # 🚀 Streamlitのsession_stateには軽量な参照(ID)だけを渡す
-                task_data_light = {
-                    "task_id": task_id,
-                    "emotion": res["emotion"],
-                    "response_text": res["response_text"],
-                    "is_initial_greeting": res.get("is_initial_greeting", False)
-                }
-                
-                st.session_state.current_avatar_task = task_data_light
-                logger.info(f"[App] Updated light in-memory task: {task_id}")
+                # 🚀 データを直接session_stateに格納 (数MBならStreamlitは耐えれる)
+                st.session_state.current_avatar_task = task_data
+                logger.info(f"[App] Updated in-memory task: {task_id}")
                 
                 if res.get("is_initial_greeting"):
-                    st.session_state.greeting_task_cache = task_data_full
+                    st.session_state.greeting_task_cache = task_data
                     try:
                         cache_file = LOCAL_STATIC_DIR / "greeting_cache.json"
                         with open(cache_file, "w", encoding="utf-8") as f:
-                            json.dump(task_data_full, f, ensure_ascii=False, indent=2)
+                            json.dump(task_data, f, ensure_ascii=False, indent=2)
                         logger.info(f"[Cache] Saved initial greeting to physical file: {cache_file.name}")
                     except Exception as e:
                         logger.warning(f"[Cache] Failed to save to physical file: {e}")
@@ -245,12 +230,10 @@ def render_avatar(placeholder, session_id: str):
         if html_path.exists():
             html_content = html_path.read_text(encoding="utf-8")
             
-            # 1. 🚀 動画Base64マップをセッションキャッシュ (毎回4本のWebMを再エンコードしない = 数秒短縮)
-            if "_video_b64_cache" not in st.session_state:
-                st.session_state._video_b64_cache = PathManager.get_video_base64_map()
-            video_urls = st.session_state._video_b64_cache
+            # 1. 🚀 WebM動画のBase64エンコードマップを取得 (Streamlit Cloudのパス問題回避のため直埋め込み)
+            video_urls = PathManager.get_video_base64_map()
             
-            # 2. 🚀 現在のタスクデータを取得 (軽量参照のみ)
+            # 2. 🚀 現在のタスクデータを取得 (audio_b64含むフルデータ)
             task_data = st.session_state.get("current_avatar_task")
             
             # 3. 🚀 データをHTMLに注入

@@ -123,19 +123,7 @@
         };
     }
 
-    async function fetchTaskPayload(taskId) {
-        try {
-            // Streamlit Cloud serves static files mapped to /app/static/
-            const resp = await fetch(`app/static/task_${taskId}.json?v=${Date.now()}`);
-            if (!resp.ok) return null;
-            return await resp.json();
-        } catch(e) {
-            console.error("Task fetch error", e);
-            return null;
-        }
-    }
-
-    async function processTask(d) {
+    function processTask(d) {
         if (!d || !d.task_id || d.task_id === lastPlayedTaskId) return;
         
         if (d.task_id !== "waiting" && d.task_id !== "processing") {
@@ -150,29 +138,13 @@
             return;
         }
 
-        // 🚀 Fetch heavy data asynchronously to avoid 20-second payload transfer lag
-        let audioB64 = d.audio_b64;
-        if (!audioB64 && d.task_id !== "waiting") {
-            const payload = await fetchTaskPayload(d.task_id);
-            if (payload && payload.audio_b64) {
-                audioB64 = payload.audio_b64;
-            }
-        }
-        
-        if (!audioB64) {
-            console.warn("No audio data for task: " + d.task_id);
-            switchVideo('idle');
-            status.style.display = 'none';
-            return;
-        }
-
         const isS = d.is_initial_greeting ? false : ['angry', 'power', 'strong', 'joy'].includes(d.emotion.toLowerCase());
         const fullText = d.response_text || "";
         const segments = fullText.match(/[^。、！？\n]+[。、！？\n]*/g) || [fullText];
         let currentSegIndex = -1;
 
         if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-        const b = new Blob([Uint8Array.from(atob(audioB64), c => c.charCodeAt(0))], { type: 'audio/mpeg' });
+        const b = new Blob([Uint8Array.from(atob(d.audio_b64), c => c.charCodeAt(0))], { type: 'audio/mpeg' });
         currentAudioUrl = URL.createObjectURL(b);
         audio.src = currentAudioUrl;
         
