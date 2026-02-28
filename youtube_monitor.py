@@ -51,26 +51,11 @@ def _monitor_loop(video_id: str, queue: Queue, stop_event: threading.Event):
             while chat.is_alive() and not stop_event.is_set():
                 chat_data = chat.get()
                 if chat_data.items:
-                    now = time.time()
-                    if now - last_comment_time < COMMENT_THROTTLE_INTERVAL:
-                        stop_event.wait(2)
-                        continue
-
-                    message_texts = [c.message for c in chat_data.items]
-
-                    # Filter (synchronous call inside thread)
-                    try:
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        valid_texts = loop.run_until_complete(
-                            _async_filter(message_texts)
-                        )
-                        loop.close()
-                    except Exception:
-                        valid_texts = message_texts[:1]
-
                     for c in chat_data.items:
-                        if c.message in valid_texts:
+                        now = time.time()
+                        # Only pickup a comment if it's been at least COMMENT_THROTTLE_INTERVAL seconds since the last one.
+                        # This avoids filling the queue with spam, but also allows us to pick up the very first comment over the limit.
+                        if now - last_comment_time >= COMMENT_THROTTLE_INTERVAL:
                             item = ChatItem(
                                 message_text=c.message,
                                 author_name=c.author.name,
@@ -79,7 +64,7 @@ def _monitor_loop(video_id: str, queue: Queue, stop_event: threading.Event):
                             queue.put(item)
                             last_comment_time = time.time()
                             logger.info(f"[YT Monitor] Queued: {c.author.name}: {c.message[:30]}...")
-                            break  # One comment per cycle
+                            break  # Queue at most one comment per chat_data chunk and update timer
 
                 stop_event.wait(2)
 
@@ -89,11 +74,6 @@ def _monitor_loop(video_id: str, queue: Queue, stop_event: threading.Event):
         except Exception as e:
             logger.error(f"[YT Monitor] Error: {e}", exc_info=True)
             stop_event.wait(30)
-
-
-async def _async_filter(messages):
-    """Wrapper to call async filter from sync context."""
-    return filter_inappropriate_comments(messages)
 
 
 def start_youtube_monitor(video_id: str, queue: Queue) -> tuple[threading.Thread, threading.Event]:
