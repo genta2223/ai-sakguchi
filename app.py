@@ -23,8 +23,7 @@ import json
 import hashlib
 import uuid
 import smtplib
-from email.mime.text import MIMEText
-from email.header import Header
+from email.message import EmailMessage
 from queue import Queue, Empty
 
 from streamlit_autorefresh import st_autorefresh
@@ -431,15 +430,16 @@ def send_direct_message(reply_email: str, user_message: str) -> bool:
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         )
 
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["Subject"] = Header("【町民より】AIアバター経由での直接質問", "utf-8")
+        msg = EmailMessage()
+        msg.set_content(body)
+        msg["Subject"] = "【町民より】AIアバター経由での直接質問"
         msg["From"] = gmail_user
         msg["To"] = target_email
 
         # 4. Send via Gmail SMTP
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(gmail_user, gmail_pass)
-            server.sendmail(gmail_user, target_email, msg.as_string())
+            server.send_message(msg)
 
         logger.info(f"[Email] Successfully sent direct message from {reply_email}")
 
