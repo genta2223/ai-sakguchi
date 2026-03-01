@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI阪口源太 | Fast AI Avatar Framework (Streamlit OSS)</title>
+    <meta name="description" content="東京都知事選で話題となった「AI安野」氏の取り組みにインスパイアされ、国境の島・与那国島の実務家として誕生したのが「AI阪口源太」です。爆速・軽量・簡単にAI政治家やVTuberを作れるStreamlitベースのOSSフレームワーク。地方創生を実装で加速させます。">
+    <meta name="keywords" content="AI政治家, AI安野, 地方創生, 与那国島, Streamlit, OSS, AIアバター">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="hero">
+        <div class="container">
+            <h1>評論するより、実装する。</h1>
+            <p class="subtitle">Fast AI Avatar Framework for Everyone.</p>
+            <p class="description">
+                東京都知事選で話題となった「AI安野」氏が示した「AIと政治の可能性」。<br>
+                その衝撃を、国境の島・与那国島でいち早く「実装」したのが<strong>AI阪口源太</strong>です。<br>
+                地方創生の新たなカタチを、テクノロジーの力で切り拓きます。
+            </p>
+            <div class="cta-group">
+                <a href="https://your-streamlit-app-url.streamlit.app" class="btn btn-primary">📱 AI阪口源太と話す</a>
+                <a href="https://github.com/genta2223/ai-sakguchi" class="btn btn-secondary">💻 OSSソースコード (GitHub)</a>
+            </div>
+        </div>
+    </header>
+
+    <section class="features">
+        <div class="container">
+            <h2>✨ 3つの圧倒的強み</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>⚡ 爆速のレスポンス</h3>
+                    <p>FAISS（ベクトル検索）を用いた強力なローカルキャッシュ機構を搭載。過去に回答した質問には、LLM推論も音声合成もスキップし、「0秒」で即答します。</p>
+                </div>
+                <div class="card">
+                    <h3>🪶 超軽量デザイン</h3>
+                    <p>重い3Dモデルは不使用。4つの軽量WebM動画をJavaScriptでシームレスに切り替え。メモリ1GBの無料Streamlit Cloud環境でも安定動作する「v20.0 Stable」アーキテクチャ。</p>
+                </div>
+                <div class="card">
+                    <h3>🛠️ 誰でも簡単導入</h3>
+                    <p>動画ファイルを差し替え、環境変数を変更するだけで、あなただけの「AI政治家」や「VTuber」に早変わり。ノーコード感覚で着せ替え可能なオープンソース（OSS）です。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="tech-stack">
+        <div class="container">
+            <h2>🏗️ 技術スタック</h2>
+            <ul class="tech-list">
+                <li><strong>Frontend:</strong> Streamlit + Custom HTML/JS (iframe DOM破壊防止ロジック)</li>
+                <li><strong>Backend:</strong> Python threading による完全非同期処理</li>
+                <li><strong>Brain (LLM & RAG):</strong> Gemini 2.0 Flash + FAISSキャッシュ</li>
+                <li><strong>Voice:</strong> Google Cloud TTS</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="qa">
+        <div class="container">
+            <h2>💡 よくある質問 (Q&A)</h2>
+            <div class="qa-item">
+                <h3>Q. AI安野氏のシステムとは何が違うのですか？</h3>
+                <p>A. AI安野氏の素晴らしいビジョンにインスパイアされつつ、本システムは「より低コストで誰でも立ち上げられること」に特化しています。React等の複雑な環境構築は不要で、Python (Streamlit) のみで完結しているため、サーバー代も限りなくゼロに抑えられます。</p>
+            </div>
+            <div class="qa-item">
+                <h3>Q. 自分のAIアバターを作れますか？</h3>
+                <p>A. はい！GitHubのソースコードをCloneし、あなたの動画素材とNotebookLM等で作成した「思考データ」を入れるだけで、すぐにあなた自身のAIが完成します。</p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 阪口源太 All Rights Reserved. | <a href="https://x.com/genta2223">X (旧Twitter)</a></p>
+        </div>
+    </footer>
+</body>
+</html>
