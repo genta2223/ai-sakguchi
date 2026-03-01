@@ -357,10 +357,17 @@ def main():
 
     # --- Direct Contact Link (Bottom) ---
     st.markdown("---")
-    avatar_name = st.secrets.get("AVATAR_NAME", "阪口源太")
-    x_url = st.secrets.get("SOCIAL_X_URL", "https://x.com/genta2223")
-    st.write("💬 **AIで解決しないご質問や、直接のメッセージはこちら！**")
-    st.link_button(f"🐦 X (旧Twitter) で{avatar_name}に直接質問する", x_url)
+    st.write("💬 **AIで解決しないご質問や、ソースコードはこちら！**")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        avatar_name = st.secrets.get("AVATAR_NAME", "阪口源太")
+        x_url = st.secrets.get("SOCIAL_X_URL", "https://x.com/genta2223")
+        st.link_button(f"🐦 X (旧Twitter) で{avatar_name}に直接質問する", x_url, use_container_width=True)
+
+    with col2:
+        repo_url = st.secrets.get("GITHUB_REPO_URL", "https://github.com/genta2223/ai-sakguchi")
+        st.link_button("💻 GitHubでソースコードを見る (OSS)", repo_url, use_container_width=True)
 
 
 if __name__ == "__main__":

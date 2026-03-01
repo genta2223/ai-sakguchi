@@ -1,48 +1,58 @@
-# AI 阪口源太 — 与那国町議会議員 AITuber
+# 🎙️ Fast AI Avatar Framework (Streamlit)
 
-Streamlit Cloud で動作する AI 町政報告会システム。
+**「評論するより、実装する。」**
+わずか数ステップで、あなたの「AIアバター（政治家・VTuber・広報担当）」を爆速・超軽量でWeb上にデプロイできる、Streamlitベースのオープンソース・フレームワークです。
 
-## 機能
+## ✨ なぜこのフレームワークなのか？（3つの圧倒的強み）
 
-- 🎬 **WebM動画アバター**: idle / talking_normal / talking_strong の3状態を感情に応じて切替
-- 🗣️ **Google Cloud TTS**: クラウド音声合成で高速レスポンス
-- 🧠 **Gemini 2.0 Flash + FAISS RAG**: 政策ドキュメントに基づく正確な回答
-- 💬 **ハイブリッド入力**: テキスト入力 + YouTube ライブチャット自動取得
-- 📺 **OBS対応**: `?embed=1` パラメータでアバター部分のみ表示
+既存のAIアバター開発（React + WebGLなど）の複雑さを排除し、Pythonのみで構築されています。
 
-## AIの信頼性とエビデンス
+* ⚡ **爆速（0秒レスポンス）**
+  * FAISS（ベクトル検索）を用いた強力なキャッシュ機構（`faq_cache.json`）を搭載。
+  * 過去に回答した質問には、LLMの推論も音声合成（TTS）もスキップして**「0秒」**で即答します。
+* 🪶 **超軽量（Streamlit Cloudで安定動作）**
+  * 重い3Dモデルは使わず、4つの軽量WebM動画（待機・思考・発話・頷き）を非同期JavaScriptでシームレスに切り替え。
+  * Streamlit特有の「画面のチラつき」や「無限リロードによるメモリ爆発」を完全に制圧した独自アーキテクチャ（v20.0 Stable）。1GBメモリの無料クラウドでも絶対に落ちません。
+* 🛠️ **簡単導入（ノーコードで着せ替え可能）**
+  * `static` フォルダ内のWebM動画を差し替え、`Secrets`（環境変数）の名前とURLを書き換えるだけで、**誰でも自分のAIアバターとしてシステムを丸ごと流用**できます。
 
-本AIアバターの回答ロジックは、阪口源太の過去の実績、NPO活動、および具体的な政策提言を多角的に解析し構築されています。
-AIが単なる生成を行うのではなく、実務家としての「実装力」を基盤に回答している証跡は [docs/AI_CORE_STRATEGY.md](docs/AI_CORE_STRATEGY.md) に公式ドキュメントとして公開されています。
+## 🏗️ システムアーキテクチャ
+* **Frontend:** Streamlit + Custom HTML/JS (iframe DOM破壊防止ロジック)
+* **Backend Worker:** Python `threading` による完全非同期処理
+* **Brain (LLM & RAG):** Gemini 2.0 Flash + FAISS (ベクトル検索による回答生成)
+* **Voice:** Google Cloud TTS
 
-## セットアップ
+## 🚀 クイックスタート (ローカル構築)
 
-### 1. Streamlit Cloud
-
-1. このリポジトリを GitHub にプッシュ
-2. [share.streamlit.io](https://share.streamlit.io) でデプロイ
-3. Settings → Secrets に以下を設定:
-
-```toml
-GOOGLE_API_KEY = "your-gemini-api-key"
-GOOGLE_APPLICATION_CREDENTIALS_JSON = '{"type":"service_account",...}'
-YOUTUBE_API_KEY = "your-youtube-api-key"
-YT_ID = "your-live-video-id"
-ENABLE_YOUTUBE_MONITOR = false
+1. リポジトリのクローン
+```bash
+git clone https://github.com/genta2223/ai-sakguchi.git
+cd ai-sakguchi
 ```
 
-### 2. ローカル開発
+2. 依存関係のインストール
 
 ```bash
-cd streamlit_app
 pip install -r requirements.txt
-# .streamlit/secrets.toml を作成（secrets.toml.example を参考）
+```
+
+3. 環境変数（`.streamlit/secrets.toml`）の設定
+
+```toml
+# 必須APIキーと設定
+GEMINI_API_KEY = "your_gemini_api_key"
+GCP_SERVICE_ACCOUNT_JSON = '{ "type": "service_account", ... }'
+AVATAR_NAME = "あなたの名前"
+SOCIAL_X_URL = "https://x.com/your_id"
+GITHUB_REPO_URL = "https://github.com/your-username/your-repo"
+```
+
+4. アプリの起動
+
+```bash
 streamlit run app.py
 ```
 
-## OBS 配信設定
+## 📝 カスタマイズ方法（あなたの脳を移植する）
 
-1. OBS に「ブラウザソース」を追加
-2. URL: `https://your-app.streamlit.app/?embed=1`
-3. 幅: 1280, 高さ: 720
-4. 下部のテキストボックスは自動的に非表示になる
+`docs/TUNING_MANUAL.md` を参照してください。経歴や政策（あるいはキャラクター設定）をNotebookLM等で構造化し、プロンプトとRAGデータに流し込むだけで、あなたと全く同じ思考で語り出すAIが完成します。
