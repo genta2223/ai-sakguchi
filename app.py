@@ -357,8 +357,10 @@ def main():
 
     # --- Direct Contact Link (Bottom) ---
     st.markdown("---")
-    st.write(" **AIで解決しないご質問や、直接のメッセージはこちら！**")
-    st.link_button("🐦 X (旧Twitter) で阪口源太に直接質問する", "https://x.com/genta2223")
+    avatar_name = st.secrets.get("AVATAR_NAME", "阪口源太")
+    x_url = st.secrets.get("SOCIAL_X_URL", "https://x.com/genta2223")
+    st.write("💬 **AIで解決しないご質問や、直接のメッセージはこちら！**")
+    st.link_button(f"🐦 X (旧Twitter) で{avatar_name}に直接質問する", x_url)
 
 
 if __name__ == "__main__":
