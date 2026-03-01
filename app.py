@@ -431,8 +431,8 @@ def send_direct_message(reply_email: str, user_message: str) -> bool:
         )
 
         msg = EmailMessage()
-        msg.set_content(body)
-        msg["Subject"] = "【町民より】AIアバター経由での直接質問"
+        msg.set_content(body, charset="utf-8")
+        msg["Subject"] = "Notification: Direct Message from AI Avatar"
         msg["From"] = gmail_user
         msg["To"] = target_email
 
