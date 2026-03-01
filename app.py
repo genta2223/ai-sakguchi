@@ -22,8 +22,6 @@ import threading
 import json
 import hashlib
 import uuid
-import smtplib
-from email.message import EmailMessage
 from queue import Queue, Empty
 
 from streamlit_autorefresh import st_autorefresh
@@ -357,106 +355,10 @@ def main():
             )
             st.divider()
 
-    # --- Direct Email Form (Bottom) ---
+    # --- Direct Contact Link (Bottom) ---
     st.markdown("---")
-    with st.expander("✉️ AIで解決しない場合は、阪口源太に直接質問する"):
-        with st.form(key="direct_email_form", clear_on_submit=True):
-            reply_email = st.text_input("📧 返信用メールアドレス", placeholder="example@email.com")
-            user_message = st.text_area("💬 質問・メッセージ内容", placeholder="AIでは解決できなかった具体的なご質問をどうぞ...", height=120)
-            submitted = st.form_submit_button("📨 阪口源太に送信する")
-
-            if submitted:
-                if not reply_email or not user_message:
-                    st.warning("メールアドレスとメッセージの両方を入力してください。")
-                else:
-                    success = send_direct_message(reply_email, user_message)
-                    if success:
-                        st.success("✅ 阪口源太本人にメッセージを送信しました！")
-                    else:
-                        st.error("❌ 送信に失敗しました。しばらく待ってからもう一度お試しください。")
-
-
-def send_direct_message(reply_email: str, user_message: str) -> bool:
-    """Send a direct message to the politician via Gmail SMTP. Returns True on success."""
-    try:
-        gmail_user = st.secrets.get("GMAIL_USER", "")
-        gmail_pass = st.secrets.get("GMAIL_APP_PASSWORD", "")
-        target_email = st.secrets.get("TARGET_EMAIL", "")
-
-        if not gmail_user or not gmail_pass or not target_email:
-            logger.error("[Email] Missing GMAIL_USER, GMAIL_APP_PASSWORD, or TARGET_EMAIL in secrets.")
-            return False
-
-        # 1. Build conversation history
-        history_text = "（履歴なし）"
-        if st.session_state.history:
-            lines = []
-            for entry in st.session_state.history:
-                lines.append(f"Q ({entry['author']}): {entry['question']}")
-                lines.append(f"A [{entry['emotion']}]: {entry['response']}")
-                lines.append("")
-            history_text = "\n".join(lines)
-
-        # 2. Build extra cache report
-        extra_report = "（なし）"
-        try:
-            extra_cache_file = LOCAL_STATIC_DIR / "extra_cache.json"
-            if extra_cache_file.exists():
-                with open(extra_cache_file, "r", encoding="utf-8") as f:
-                    extra_data = json.load(f)
-                if extra_data:
-                    report_lines = []
-                    for i, item in enumerate(extra_data, 1):
-                        q = item.get("question", "N/A")
-                        a = item.get("response_text", "N/A")[:200]
-                        report_lines.append(f"{i}. Q: {q}\n   A: {a}")
-                    extra_report = "\n".join(report_lines)
-        except Exception as e:
-            logger.warning(f"[Email] Failed to read extra_cache: {e}")
-
-        # 3. Compose email body
-        body = (
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"【ユーザーからのメッセージ】\n"
-            f"{user_message}\n\n"
-            f"【返信用アドレス】\n"
-            f"{reply_email}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"【これまでの会話ログ】\n"
-            f"{history_text}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"【システム報告：新着の未回答ログ (extra_cache)】\n"
-            f"{extra_report}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        )
-
-        msg = EmailMessage()
-        msg.set_content(body, charset="utf-8")
-        msg["Subject"] = "Notification: Direct Message from AI Avatar"
-        msg["From"] = gmail_user
-        msg["To"] = target_email
-
-        # 4. Send via Gmail SMTP
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(gmail_user, gmail_pass)
-            server.send_message(msg)
-
-        logger.info(f"[Email] Successfully sent direct message from {reply_email}")
-
-        # 5. Reset extra_cache.json after successful send (serves as admin report delivery)
-        try:
-            extra_cache_file = LOCAL_STATIC_DIR / "extra_cache.json"
-            with open(extra_cache_file, "w", encoding="utf-8") as f:
-                json.dump([], f)
-            logger.info("[Email] extra_cache.json reset after report delivery.")
-        except Exception as e:
-            logger.warning(f"[Email] Failed to reset extra_cache: {e}")
-
-        return True
-
-    except Exception as e:
-        logger.error(f"[Email] Failed to send: {e}")
-        return False
+    st.write(" **AIで解決しないご質問や、直接のメッセージはこちら！**")
+    st.link_button("🐦 X (旧Twitter) で阪口源太に直接質問する", "https://x.com/genta2223")
 
 
 if __name__ == "__main__":
